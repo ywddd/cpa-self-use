@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,9 +35,40 @@ const (
 	codexUserAgent             = "codex_cli_rs/0.118.0 (Mac OS 26.3.1; arm64) iTerm.app/3.6.9"
 	codexOriginator            = "codex_cli_rs"
 	codexDefaultImageToolModel = "gpt-image-2"
+	defaultCodexHeaderTimeout  = 180 * time.Second
 )
 
 var dataTag = []byte("data:")
+
+func newCodexHTTPClient(ctx context.Context, cfg *config.Config, auth *cliproxyauth.Auth) *http.Client {
+	httpClient := helps.NewProxyAwareHTTPClient(ctx, cfg, auth, 0)
+	return helps.WithResponseHeaderTimeout(httpClient, codexHeaderTimeout(cfg))
+}
+
+func codexHeaderTimeout(cfg *config.Config) time.Duration {
+	seconds := 0
+	if cfg != nil {
+		seconds = cfg.CodexResponseHeaderTimeoutSeconds
+	}
+
+	if raw := strings.TrimSpace(os.Getenv("CPA_CODEX_RESPONSE_HEADER_TIMEOUT_SECONDS")); raw != "" {
+		parsed, errParse := strconv.Atoi(raw)
+		if errParse != nil {
+			log.WithError(errParse).Warn("invalid CPA_CODEX_RESPONSE_HEADER_TIMEOUT_SECONDS; using config/default value")
+		} else {
+			seconds = parsed
+		}
+	}
+
+	switch {
+	case seconds < 0:
+		return 0
+	case seconds == 0:
+		return defaultCodexHeaderTimeout
+	default:
+		return time.Duration(seconds) * time.Second
+	}
+}
 
 // Streamed Codex responses may emit response.output_item.done events while leaving
 // response.completed.response.output empty. Keep the stream path aligned with the
@@ -236,7 +269,7 @@ func (e *CodexExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth
 	if err := e.PrepareRequest(httpReq, auth); err != nil {
 		return nil, err
 	}
-	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := newCodexHTTPClient(ctx, e.cfg, auth)
 	return httpClient.Do(httpReq)
 }
 
@@ -309,7 +342,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		AuthType:  authType,
 		AuthValue: authValue,
 	})
-	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := newCodexHTTPClient(ctx, e.cfg, auth)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -512,7 +545,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		AuthType:  authType,
 		AuthValue: authValue,
 	})
-	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := newCodexHTTPClient(ctx, e.cfg, auth)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -661,7 +694,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		AuthValue: authValue,
 	})
 
-	httpClient := helps.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := newCodexHTTPClient(ctx, e.cfg, auth)
 	upstreamStarted := time.Now()
 	helps.LogWithRequestID(ctx).Infof("codex stream executor: upstream request started | model=%s", baseModel)
 	httpResp, err := httpClient.Do(httpReq)
