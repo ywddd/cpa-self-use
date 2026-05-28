@@ -1,6 +1,7 @@
 package management
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -106,7 +107,7 @@ func (h *Handler) TestAuthFile(c *gin.Context) {
 
 	selectedAuth.EnsureIndex()
 	startedAt := time.Now()
-	execCtx := apihandlers.WithPinnedAuthID(c.Request.Context(), selectedAuth.ID)
+	execCtx := apihandlers.WithPinnedAuthID(h.authFileTestExecutionContext(c), selectedAuth.ID)
 	resp, _, errMsg := apiHandler.ExecuteWithAuthManager(execCtx, "openai-response", model, rawRequest, "")
 	latencyMS := time.Since(startedAt).Milliseconds()
 
@@ -136,6 +137,36 @@ func (h *Handler) TestAuthFile(c *gin.Context) {
 	out.RawResponse = string(resp)
 	out.Text = extractOpenAIResponsesText(resp)
 	c.JSON(http.StatusOK, out)
+}
+
+func (h *Handler) authFileTestExecutionContext(c *gin.Context) context.Context {
+	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	if c == nil {
+		return ctx
+	}
+	if _, exists := c.Get("userApiKey"); !exists {
+		if apiKey := h.firstConfiguredClientAPIKey(); apiKey != "" {
+			c.Set("userApiKey", apiKey)
+			c.Set("accessProvider", "management-auth-test")
+			c.Set("accessMetadata", map[string]string{"source": "management-auth-test"})
+		}
+	}
+	return context.WithValue(ctx, "gin", c)
+}
+
+func (h *Handler) firstConfiguredClientAPIKey() string {
+	if h == nil || h.cfg == nil {
+		return ""
+	}
+	for _, key := range h.cfg.APIKeys {
+		if trimmed := strings.TrimSpace(key); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func (h *Handler) authByName(name string) *auth.Auth {
