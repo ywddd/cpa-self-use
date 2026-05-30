@@ -528,7 +528,7 @@ func extractCodexIDTokenClaims(auth *coreauth.Auth) gin.H {
 	}
 
 	result := gin.H{}
-	if v := strings.TrimSpace(claims.CodexAuthInfo.ChatgptAccountID); v != "" {
+	if v := codexAccountIDFromClaims(claims); v != "" {
 		result["chatgpt_account_id"] = v
 	}
 	if v := strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType); v != "" {
@@ -547,6 +547,41 @@ func extractCodexIDTokenClaims(auth *coreauth.Auth) gin.H {
 	return result
 }
 
+func codexAccountIDFromClaims(claims *codex.JWTClaims) string {
+	if claims == nil {
+		return ""
+	}
+	for _, value := range []string{
+		claims.CodexAuthInfo.ChatgptAccountID,
+		claims.CodexAuthInfo.ChatgptUserID,
+		claims.CodexAuthInfo.UserID,
+	} {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func codexClaimsFromMetadata(auth *coreauth.Auth, key string) *codex.JWTClaims {
+	if auth == nil || auth.Metadata == nil {
+		return nil
+	}
+	raw, ok := auth.Metadata[key].(string)
+	if !ok {
+		return nil
+	}
+	token := strings.TrimSpace(raw)
+	if token == "" {
+		return nil
+	}
+	claims, err := codex.ParseJWTToken(token)
+	if err != nil {
+		return nil
+	}
+	return claims
+}
+
 func codexAccountID(auth *coreauth.Auth) string {
 	if auth == nil {
 		return ""
@@ -562,6 +597,11 @@ func codexAccountID(auth *coreauth.Auth) string {
 	if claims := extractCodexIDTokenClaims(auth); claims != nil {
 		if v, ok := claims["chatgpt_account_id"].(string); ok {
 			return strings.TrimSpace(v)
+		}
+	}
+	for _, key := range []string{"id_token", "access_token"} {
+		if accountID := codexAccountIDFromClaims(codexClaimsFromMetadata(auth, key)); accountID != "" {
+			return accountID
 		}
 	}
 	return ""
@@ -582,6 +622,34 @@ func codexPlanType(auth *coreauth.Auth) string {
 	if claims := extractCodexIDTokenClaims(auth); claims != nil {
 		if v, ok := claims["plan_type"].(string); ok {
 			return strings.TrimSpace(v)
+		}
+	}
+	for _, key := range []string{"id_token", "access_token"} {
+		if claims := codexClaimsFromMetadata(auth, key); claims != nil {
+			if planType := strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType); planType != "" {
+				return planType
+			}
+		}
+	}
+	if planType := codexPlanTypeFromFileName(auth.FileName); planType != "" {
+		return planType
+	}
+	return codexPlanTypeFromFileName(auth.ID)
+}
+
+func codexPlanTypeFromFileName(name string) string {
+	baseName := filepath.Base(strings.TrimSpace(name))
+	base := strings.ToLower(strings.TrimSuffix(baseName, filepath.Ext(baseName)))
+	if base == "" {
+		return ""
+	}
+	parts := strings.FieldsFunc(base, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	})
+	for _, part := range parts {
+		switch part {
+		case "free", "plus", "team", "pro", "prolite", "max", "max5", "max20":
+			return part
 		}
 	}
 	return ""
