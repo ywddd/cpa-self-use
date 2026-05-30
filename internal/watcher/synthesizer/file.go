@@ -161,10 +161,23 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 	ApplyAuthExcludedModelsMeta(a, cfg, perAccountExcluded, "oauth")
 	// For codex auth files, extract plan_type from the JWT id_token.
 	if provider == "codex" {
+		if accountID := firstMetadataString(metadata, "chatgpt_account_id", "chatgptAccountId", "account_id", "accountId"); accountID != "" {
+			a.Attributes["account_id"] = accountID
+			a.Attributes["chatgpt_account_id"] = accountID
+		}
+		if planType := firstMetadataString(metadata, "chatgpt_plan_type", "chatgptPlanType", "plan_type", "planType"); planType != "" {
+			a.Attributes["plan_type"] = planType
+			a.Attributes["chatgpt_plan_type"] = planType
+		}
 		if idTokenRaw, ok := metadata["id_token"].(string); ok && strings.TrimSpace(idTokenRaw) != "" {
 			if claims, errParse := codex.ParseJWTToken(idTokenRaw); errParse == nil && claims != nil {
+				if accountID := strings.TrimSpace(claims.CodexAuthInfo.ChatgptAccountID); accountID != "" {
+					a.Attributes["account_id"] = accountID
+					a.Attributes["chatgpt_account_id"] = accountID
+				}
 				if pt := strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType); pt != "" {
 					a.Attributes["plan_type"] = pt
+					a.Attributes["chatgpt_plan_type"] = pt
 				}
 			}
 		}
@@ -181,6 +194,30 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 		}
 	}
 	return []*coreauth.Auth{a}
+}
+
+func firstMetadataString(metadata map[string]any, keys ...string) string {
+	for _, key := range keys {
+		raw, ok := metadata[key]
+		if !ok || raw == nil {
+			continue
+		}
+		switch v := raw.(type) {
+		case string:
+			if trimmed := strings.TrimSpace(v); trimmed != "" {
+				return trimmed
+			}
+		case fmt.Stringer:
+			if trimmed := strings.TrimSpace(v.String()); trimmed != "" {
+				return trimmed
+			}
+		default:
+			if trimmed := strings.TrimSpace(fmt.Sprint(v)); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
 }
 
 // SynthesizeGeminiVirtualAuths creates virtual Auth entries for multi-project Gemini credentials.

@@ -71,6 +71,56 @@ func TestListAuthFilesFromDisk_IncludesProjectID(t *testing.T) {
 	}
 }
 
+func TestListAuthFiles_IncludesCodexAccountFieldsFromManager(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	authDir := t.TempDir()
+	fileName := "codex-user@example.com.json"
+	filePath := filepath.Join(authDir, fileName)
+	if errWrite := os.WriteFile(filePath, []byte(`{"type":"codex","email":"user@example.com","account_id":"acct-123","plan_type":"plus"}`), 0o600); errWrite != nil {
+		t.Fatalf("failed to write auth file: %v", errWrite)
+	}
+
+	manager := coreauth.NewManager(nil, nil, nil)
+	record := &coreauth.Auth{
+		ID:       fileName,
+		FileName: fileName,
+		Provider: "codex",
+		Status:   coreauth.StatusActive,
+		Attributes: map[string]string{
+			"path":    filePath,
+			"account": "acct-ignored",
+		},
+		Metadata: map[string]any{
+			"type":       "codex",
+			"email":      "user@example.com",
+			"account_id": "acct-123",
+			"plan_type":  "plus",
+		},
+	}
+	if _, errRegister := manager.Register(context.Background(), record); errRegister != nil {
+		t.Fatalf("failed to register auth record: %v", errRegister)
+	}
+
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	h.tokenStore = &memoryAuthStore{}
+
+	entry := firstAuthFileEntry(t, h)
+	if got := entry["account_id"]; got != "acct-123" {
+		t.Fatalf("expected account_id %q, got %#v", "acct-123", got)
+	}
+	if got := entry["chatgpt_account_id"]; got != "acct-123" {
+		t.Fatalf("expected chatgpt_account_id %q, got %#v", "acct-123", got)
+	}
+	if got := entry["plan_type"]; got != "plus" {
+		t.Fatalf("expected plan_type %q, got %#v", "plus", got)
+	}
+	if got := entry["chatgpt_plan_type"]; got != "plus" {
+		t.Fatalf("expected chatgpt_plan_type %q, got %#v", "plus", got)
+	}
+}
+
 func firstAuthFileEntry(t *testing.T, h *Handler) map[string]any {
 	t.Helper()
 

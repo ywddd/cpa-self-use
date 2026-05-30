@@ -166,6 +166,49 @@ func TestFileSynthesizer_Synthesize_GeminiProviderMapping(t *testing.T) {
 	}
 }
 
+func TestFileSynthesizer_Synthesize_CodexAccountFields(t *testing.T) {
+	tempDir := t.TempDir()
+
+	authData := map[string]any{
+		"type":       "codex",
+		"email":      "codex@example.com",
+		"account_id": "acct-123",
+		"plan_type":  "plus",
+	}
+	data, _ := json.Marshal(authData)
+	if err := os.WriteFile(filepath.Join(tempDir, "codex-auth.json"), data, 0644); err != nil {
+		t.Fatalf("failed to write auth file: %v", err)
+	}
+
+	synth := NewFileSynthesizer()
+	ctx := &SynthesisContext{
+		Config:      &config.Config{},
+		AuthDir:     tempDir,
+		Now:         time.Now(),
+		IDGenerator: NewStableIDGenerator(),
+	}
+
+	auths, err := synth.Synthesize(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(auths) != 1 {
+		t.Fatalf("expected 1 auth, got %d", len(auths))
+	}
+	if got := auths[0].Attributes["account_id"]; got != "acct-123" {
+		t.Fatalf("account_id attribute = %q, want acct-123", got)
+	}
+	if got := auths[0].Attributes["chatgpt_account_id"]; got != "acct-123" {
+		t.Fatalf("chatgpt_account_id attribute = %q, want acct-123", got)
+	}
+	if got := auths[0].Attributes["plan_type"]; got != "plus" {
+		t.Fatalf("plan_type attribute = %q, want plus", got)
+	}
+	if got := auths[0].Attributes["chatgpt_plan_type"]; got != "plus" {
+		t.Fatalf("chatgpt_plan_type attribute = %q, want plus", got)
+	}
+}
+
 func TestFileSynthesizer_Synthesize_SkipsInvalidFiles(t *testing.T) {
 	tempDir := t.TempDir()
 

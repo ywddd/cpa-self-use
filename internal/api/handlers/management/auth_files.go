@@ -441,6 +441,16 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 	if claims := extractCodexIDTokenClaims(auth); claims != nil {
 		entry["id_token"] = claims
 	}
+	if strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") {
+		if accountID := codexAccountID(auth); accountID != "" {
+			entry["account_id"] = accountID
+			entry["chatgpt_account_id"] = accountID
+		}
+		if planType := codexPlanType(auth); planType != "" {
+			entry["plan_type"] = planType
+			entry["chatgpt_plan_type"] = planType
+		}
+	}
 	// Expose priority from Attributes (set by synthesizer from JSON "priority" field).
 	// Fall back to Metadata for auths registered via UploadAuthFile (no synthesizer).
 	if p := strings.TrimSpace(authAttribute(auth, "priority")); p != "" {
@@ -535,6 +545,64 @@ func extractCodexIDTokenClaims(auth *coreauth.Auth) gin.H {
 		return nil
 	}
 	return result
+}
+
+func codexAccountID(auth *coreauth.Auth) string {
+	if auth == nil {
+		return ""
+	}
+	for _, key := range []string{"chatgpt_account_id", "chatgptAccountId", "account_id", "accountId"} {
+		if v := authMetadataString(auth, key); v != "" {
+			return v
+		}
+		if v := strings.TrimSpace(authAttribute(auth, key)); v != "" {
+			return v
+		}
+	}
+	if claims := extractCodexIDTokenClaims(auth); claims != nil {
+		if v, ok := claims["chatgpt_account_id"].(string); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func codexPlanType(auth *coreauth.Auth) string {
+	if auth == nil {
+		return ""
+	}
+	for _, key := range []string{"chatgpt_plan_type", "chatgptPlanType", "plan_type", "planType"} {
+		if v := authMetadataString(auth, key); v != "" {
+			return v
+		}
+		if v := strings.TrimSpace(authAttribute(auth, key)); v != "" {
+			return v
+		}
+	}
+	if claims := extractCodexIDTokenClaims(auth); claims != nil {
+		if v, ok := claims["plan_type"].(string); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func authMetadataString(auth *coreauth.Auth, key string) string {
+	if auth == nil || auth.Metadata == nil {
+		return ""
+	}
+	raw, ok := auth.Metadata[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch v := raw.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case fmt.Stringer:
+		return strings.TrimSpace(v.String())
+	default:
+		return strings.TrimSpace(fmt.Sprint(v))
+	}
 }
 
 func authEmail(auth *coreauth.Auth) string {
