@@ -768,7 +768,11 @@ var managementAuthFileTestScript = []byte(`<script id="cpa-auth-file-test-ui">
 </script>`)
 
 func injectManagementAuthFileTestUI(html []byte) []byte {
-	if len(html) == 0 || bytes.Contains(html, []byte("cpa-auth-file-test-ui")) {
+	if len(html) == 0 {
+		return html
+	}
+	html = patchManagementAuthFilesFilters(html)
+	if bytes.Contains(html, []byte("cpa-auth-file-test-ui")) {
 		return html
 	}
 	lower := bytes.ToLower(html)
@@ -784,4 +788,44 @@ func injectManagementAuthFileTestUI(html []byte) []byte {
 	out = append(out, managementAuthFileTestScript...)
 	out = append(out, html[idx:]...)
 	return out
+}
+
+func patchManagementAuthFilesFilters(html []byte) []byte {
+	html = bytes.Replace(html,
+		[]byte("aT=(e,t)=>{let n=z_(iT(e,t));return n?n===`pro`?50:Xw.has(n)&&n!==`pro`?40:n===`team`?30:n===`plus`?20:n===`free`?10:0:null},oT="),
+		[]byte("aT=(e,t)=>{let n=z_(iT(e,t));return n?n===`pro`?50:Xw.has(n)&&n!==`pro`?40:n===`team`?30:n===`plus`?20:n===`free`?10:0:null},cpaAuthTime=e=>{let t=Date.parse(e.created_at??e.createdAt??e.modtime??e.updated_at??e.updatedAt??0);return Number.isFinite(t)?t:0},cpaPlanText=(e,t)=>String(iT(e,t)??e.id_token?.plan_type??e.plan_type??e.chatgpt_plan_type??e.name??``).toLowerCase(),cpaIsFreeAuth=(e,t)=>cpaPlanText(e,t).includes(`free`),cpaIsPlusAuth=(e,t)=>cpaPlanText(e,t).includes(`plus`),oT="),
+		1)
+	html = bytes.Replace(html,
+		[]byte("[c,l]=(0,y.useState)(`all`),[u,d]=(0,y.useState)(!1),[f,p]=(0,y.useState)(!1),[m,h]=(0,y.useState)(!1),[g,_]=(0,y.useState)(!1),"),
+		[]byte("[c,l]=(0,y.useState)(`all`),[u,d]=(0,y.useState)(!1),[f,p]=(0,y.useState)(!1),[m,h]=(0,y.useState)(!1),[cpaFreeOnly,setCpaFreeOnly]=(0,y.useState)(!1),[cpaPlusOnly,setCpaPlusOnly]=(0,y.useState)(!1),[g,_]=(0,y.useState)(!1),"),
+		1)
+	html = bytes.Replace(html,
+		[]byte("typeof t.healthyOnly==`boolean`&&h(t.healthyOnly),typeof e!=`boolean`&&typeof t.compactMode==`boolean`&&_(t.compactMode),"),
+		[]byte("typeof t.healthyOnly==`boolean`&&h(t.healthyOnly),typeof t.freeOnly==`boolean`&&setCpaFreeOnly(t.freeOnly),typeof t.plusOnly==`boolean`&&setCpaPlusOnly(t.plusOnly),typeof e!=`boolean`&&typeof t.compactMode==`boolean`&&_(t.compactMode),"),
+		1)
+	html = bytes.Replace(html,
+		[]byte("healthyOnly:m,compactMode:g,search:v,page:x,pageSize:at,regularPageSize:w.regular,compactPageSize:w.compact,sortMode:A,viewMode:O}"),
+		[]byte("healthyOnly:m,freeOnly:cpaFreeOnly,plusOnly:cpaPlusOnly,compactMode:g,search:v,page:x,pageSize:at,regularPageSize:w.regular,compactPageSize:w.compact,sortMode:A,viewMode:O}"),
+		1)
+	html = bytes.Replace(html,
+		[]byte("},[g,f,c,m,x,at,w,u,v,A,P,O])"),
+		[]byte("},[g,f,c,m,cpaFreeOnly,cpaPlusOnly,x,at,w,u,v,A,P,O])"),
+		1)
+	html = bytes.Replace(html,
+		[]byte("pt=(0,y.useMemo)(()=>ne.filter(e=>!(u&&!Xx(e)||f&&e.disabled!==!0||m&&!Zx(e))),[f,ne,m,u])"),
+		[]byte("pt=(0,y.useMemo)(()=>ne.filter(e=>!(u&&!Xx(e)||f&&e.disabled!==!0||m&&!Zx(e)||((cpaFreeOnly||cpaPlusOnly)&&!((cpaFreeOnly&&cpaIsFreeAuth(e,i[e.name]))||(cpaPlusOnly&&cpaIsPlusAuth(e,i[e.name])))))),[cpaFreeOnly,cpaPlusOnly,f,i,ne,m,u])"),
+		1)
+	html = bytes.Replace(html,
+		[]byte("{value:`plan-desc`,label:e(`auth_files.sort_plan_desc`)},{value:`plan-asc`,label:e(`auth_files.sort_plan_asc`)}"),
+		[]byte("{value:`created-desc`,label:`\\u6dfb\\u52a0\\u65f6\\u95f4\\u65b0\\u5230\\u65e7`},{value:`created-asc`,label:`\\u6dfb\\u52a0\\u65f6\\u95f4\\u65e7\\u5230\\u65b0`},{value:`plan-desc`,label:e(`auth_files.sort_plan_desc`)},{value:`plan-asc`,label:e(`auth_files.sort_plan_asc`)}"),
+		1)
+	html = bytes.Replace(html,
+		[]byte("A===`priority-asc`||A===`priority-desc`?e.sort((e,t)=>tT(e,t,A===`priority-desc`?`desc`:`asc`)):(A===`plan-asc`||A===`plan-desc`)"),
+		[]byte("A===`priority-asc`||A===`priority-desc`?e.sort((e,t)=>tT(e,t,A===`priority-desc`?`desc`:`asc`)):A===`created-asc`||A===`created-desc`?e.sort((e,t)=>{let n=cpaAuthTime(e),r=cpaAuthTime(t),i=A===`created-desc`?r-n:n-r;return i!==0?i:Zw(e,t)}):(A===`plan-asc`||A===`plan-desc`)"),
+		1)
+	html = bytes.Replace(html,
+		[]byte("(0,H.jsx)(`div`,{className:J.filterToggleCard,children:(0,H.jsx)(Dy,{checked:g,onChange:e=>_(e),ariaLabel:e(`auth_files.compact_mode_label`)"),
+		[]byte("(0,H.jsx)(`div`,{className:J.filterToggleCard,children:(0,H.jsx)(Dy,{checked:cpaFreeOnly,onChange:e=>{setCpaFreeOnly(e),C(1)},ariaLabel:`\\u663e\\u793afree\\u8d26\\u53f7`,label:(0,H.jsx)(`span`,{className:J.filterToggleLabel,children:`\\u663e\\u793afree\\u8d26\\u53f7`})})}),(0,H.jsx)(`div`,{className:J.filterToggleCard,children:(0,H.jsx)(Dy,{checked:cpaPlusOnly,onChange:e=>{setCpaPlusOnly(e),C(1)},ariaLabel:`\\u663e\\u793aplus\\u8d26\\u53f7`,label:(0,H.jsx)(`span`,{className:J.filterToggleLabel,children:`\\u663e\\u793aplus\\u8d26\\u53f7`})})}),(0,H.jsx)(`div`,{className:J.filterToggleCard,children:(0,H.jsx)(Dy,{checked:g,onChange:e=>_(e),ariaLabel:e(`auth_files.compact_mode_label`)"),
+		1)
+	return html
 }
