@@ -404,17 +404,18 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, b) {
 			if strippedBody, changed := stripReasoningContextForRetry(body, b); changed {
 				helps.LogWithRequestID(ctx).Warn("codex executor: retrying once without encrypted reasoning context after upstream request error")
-				retryReq, retryBuildErr := e.cacheHelper(ctx, from, url, req, strippedBody)
+				retryReq, retryUpstreamBody, retryIdentityState, retryBuildErr := e.cacheHelper(ctx, from, url, auth, req, originalPayloadSource, strippedBody)
 				if retryBuildErr != nil {
 					err = retryBuildErr
 					return resp, err
 				}
 				applyCodexHeaders(retryReq, auth, apiKey, true, e.cfg)
+				applyCodexIdentityConfuseHeaders(retryReq.Header, &retryIdentityState)
 				helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
 					URL:       url,
 					Method:    http.MethodPost,
 					Headers:   retryReq.Header.Clone(),
-					Body:      strippedBody,
+					Body:      retryUpstreamBody,
 					Provider:  e.Identifier(),
 					AuthID:    authID,
 					AuthLabel: authLabel,
@@ -435,13 +436,14 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 				helps.RecordAPIResponseMetadata(ctx, e.cfg, retryResp.StatusCode, retryResp.Header.Clone())
 				if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
 					b, _ = io.ReadAll(retryResp.Body)
-					b = applyCodexIdentityConfuseResponsePayload(b, identityState)
+					b = applyCodexIdentityConfuseResponsePayload(b, retryIdentityState)
 					helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 					helps.LogWithRequestID(ctx).Debugf("request retry error, error status: %d, error message: %s", retryResp.StatusCode, helps.SummarizeErrorBody(retryResp.Header.Get("Content-Type"), b))
 					err = newCodexStatusErr(retryResp.StatusCode, b)
 					return resp, err
 				}
 				body = strippedBody
+				identityState = retryIdentityState
 				httpResp = retryResp
 			} else {
 				err = newCodexStatusErr(httpResp.StatusCode, b)
@@ -615,17 +617,18 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, b) {
 			if strippedBody, changed := stripReasoningContextForRetry(body, b); changed {
 				helps.LogWithRequestID(ctx).Warn("codex compact executor: retrying once without encrypted reasoning context after upstream request error")
-				retryReq, retryBuildErr := e.cacheHelper(ctx, from, url, req, strippedBody)
+				retryReq, retryUpstreamBody, retryIdentityState, retryBuildErr := e.cacheHelper(ctx, from, url, auth, req, originalPayloadSource, strippedBody)
 				if retryBuildErr != nil {
 					err = retryBuildErr
 					return resp, err
 				}
 				applyCodexHeaders(retryReq, auth, apiKey, false, e.cfg)
+				applyCodexIdentityConfuseHeaders(retryReq.Header, &retryIdentityState)
 				helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
 					URL:       url,
 					Method:    http.MethodPost,
 					Headers:   retryReq.Header.Clone(),
-					Body:      strippedBody,
+					Body:      retryUpstreamBody,
 					Provider:  e.Identifier(),
 					AuthID:    authID,
 					AuthLabel: authLabel,
@@ -646,13 +649,14 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 				helps.RecordAPIResponseMetadata(ctx, e.cfg, retryResp.StatusCode, retryResp.Header.Clone())
 				if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
 					b, _ = io.ReadAll(retryResp.Body)
-					b = applyCodexIdentityConfuseResponsePayload(b, identityState)
+					b = applyCodexIdentityConfuseResponsePayload(b, retryIdentityState)
 					helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 					helps.LogWithRequestID(ctx).Debugf("request retry error, error status: %d, error message: %s", retryResp.StatusCode, helps.SummarizeErrorBody(retryResp.Header.Get("Content-Type"), b))
 					err = newCodexStatusErr(retryResp.StatusCode, b)
 					return resp, err
 				}
 				body = strippedBody
+				identityState = retryIdentityState
 				httpResp = retryResp
 			} else {
 				err = newCodexStatusErr(httpResp.StatusCode, b)
@@ -785,16 +789,17 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, data) {
 			if strippedBody, changed := stripReasoningContextForRetry(body, data); changed {
 				helps.LogWithRequestID(ctx).Warn("codex stream executor: retrying once without encrypted reasoning context after upstream request error")
-				retryReq, retryBuildErr := e.cacheHelper(ctx, from, url, req, strippedBody)
+				retryReq, retryUpstreamBody, retryIdentityState, retryBuildErr := e.cacheHelper(ctx, from, url, auth, req, originalPayloadSource, strippedBody)
 				if retryBuildErr != nil {
 					return nil, retryBuildErr
 				}
 				applyCodexHeaders(retryReq, auth, apiKey, true, e.cfg)
+				applyCodexIdentityConfuseHeaders(retryReq.Header, &retryIdentityState)
 				helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
 					URL:       url,
 					Method:    http.MethodPost,
 					Headers:   retryReq.Header.Clone(),
-					Body:      strippedBody,
+					Body:      retryUpstreamBody,
 					Provider:  e.Identifier(),
 					AuthID:    authID,
 					AuthLabel: authLabel,
@@ -827,13 +832,14 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 						helps.RecordAPIResponseError(ctx, e.cfg, retryReadErr)
 						return nil, retryReadErr
 					}
-					retryData = applyCodexIdentityConfuseResponsePayload(retryData, identityState)
+					retryData = applyCodexIdentityConfuseResponsePayload(retryData, retryIdentityState)
 					helps.AppendAPIResponseChunk(ctx, e.cfg, retryData)
 					helps.LogWithRequestID(ctx).Debugf("request retry error, error status: %d, error message: %s", retryResp.StatusCode, helps.SummarizeErrorBody(retryResp.Header.Get("Content-Type"), retryData))
 					err = newCodexStatusErr(retryResp.StatusCode, retryData)
 					return nil, err
 				}
 				body = strippedBody
+				identityState = retryIdentityState
 				httpResp = retryResp
 			} else {
 				err = newCodexStatusErr(httpResp.StatusCode, data)
@@ -845,16 +851,17 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		}
 	}
 	startEncryptedReasoningStreamRetry := func(strippedBody []byte) (*http.Response, error) {
-		retryReq, retryBuildErr := e.cacheHelper(ctx, from, url, req, strippedBody)
+		retryReq, retryUpstreamBody, retryIdentityState, retryBuildErr := e.cacheHelper(ctx, from, url, auth, req, originalPayloadSource, strippedBody)
 		if retryBuildErr != nil {
 			return nil, retryBuildErr
 		}
 		applyCodexHeaders(retryReq, auth, apiKey, true, e.cfg)
+		applyCodexIdentityConfuseHeaders(retryReq.Header, &retryIdentityState)
 		helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
 			URL:       url,
 			Method:    http.MethodPost,
 			Headers:   retryReq.Header.Clone(),
-			Body:      strippedBody,
+			Body:      retryUpstreamBody,
 			Provider:  e.Identifier(),
 			AuthID:    authID,
 			AuthLabel: authLabel,
@@ -887,11 +894,12 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				helps.RecordAPIResponseError(ctx, e.cfg, retryReadErr)
 				return nil, retryReadErr
 			}
-			retryData = applyCodexIdentityConfuseResponsePayload(retryData, identityState)
+			retryData = applyCodexIdentityConfuseResponsePayload(retryData, retryIdentityState)
 			helps.AppendAPIResponseChunk(ctx, e.cfg, retryData)
 			helps.LogWithRequestID(ctx).Debugf("request encrypted reasoning stream retry error, error status: %d, error message: %s", retryResp.StatusCode, helps.SummarizeErrorBody(retryResp.Header.Get("Content-Type"), retryData))
 			return nil, newCodexStatusErr(retryResp.StatusCode, retryData)
 		}
+		identityState = retryIdentityState
 		return retryResp, nil
 	}
 
