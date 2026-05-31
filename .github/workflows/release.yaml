@@ -2,12 +2,32 @@ name: release
 
 on:
   push:
-    # run only against tags
     tags:
-      - '*'
+      - "v*"
+      - "selfuse-*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag. Leave empty to create selfuse-YYYYMMDD-HHMMSS."
+        required: false
+        type: string
+      prerelease:
+        description: "Mark release as prerelease"
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: "Create release as draft"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref_name || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -16,6 +36,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Resolve release tag
+        id: release_tag
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+            if [ -z "${tag}" ]; then
+              tag="selfuse-$(date -u +%Y%m%d-%H%M%S)"
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -f "${tag}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${tag}" --force
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${tag}" >> "${GITHUB_ENV}"
       - name: Install Go
         run: |
           set -euo pipefail
@@ -34,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          version="${GITHUB_REF_NAME}"
+          version="${{ steps.release_tag.outputs.tag }}"
           commit="$(git rev-parse --short HEAD)"
           build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           ldflags="-s -w -X main.Version=${version} -X main.Commit=${commit} -X main.BuildDate=${build_date}"
@@ -88,10 +128,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release create "${GITHUB_REF_NAME}" \
-            dist/*.tar.gz \
-            dist/*.zip \
-            dist/checksums.txt \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "${GITHUB_REF_NAME}" \
+          tag="${{ steps.release_tag.outputs.tag }}"
+          args=(
+            --repo "${GITHUB_REPOSITORY}"
+            --title "${tag}"
             --notes "Self-use CPA build based on CLIProxyAPI, with Codex/Responses compatibility fixes and management UI additions."
+          )
+          if [ "${{ inputs.prerelease || false }}" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          if [ "${{ inputs.draft || false }}" = "true" ]; then
+            args+=(--draft)
+          fi
+
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${tag}" dist/*.tar.gz dist/*.zip dist/checksums.txt --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            gh release create "${tag}" dist/*.tar.gz dist/*.zip dist/checksums.txt "${args[@]}"
+          fi
