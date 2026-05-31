@@ -690,6 +690,10 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 	}
 	opts.Metadata = reqMeta
 	streamResult, err := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
+	if err != nil && isContextTooLargeStreamBootstrapError(err) {
+		opts = withDisallowFreeAuthMetadata(opts)
+		streamResult, err = h.AuthManager.ExecuteStream(ctx, providers, req, opts)
+	}
 	if err != nil {
 		err = enrichAuthSelectionError(err, providers, normalizedModel)
 		errChan := make(chan *interfaces.ErrorMessage, 1)
@@ -727,6 +731,7 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		defer close(errChan)
 		sentPayload := false
 		bootstrapRetries := 0
+		contextTooLargeFreeRetryDone := false
 		maxBootstrapRetries := StreamingBootstrapRetries(h.Cfg)
 
 		sendErr := func(msg *interfaces.ErrorMessage) bool {
@@ -791,7 +796,21 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 					// Safe bootstrap recovery: if the upstream fails before any payload bytes are sent,
 					// retry a few times (to allow auth rotation / transient recovery) and then attempt model fallback.
 					if !sentPayload {
-						if bootstrapRetries < maxBootstrapRetries && bootstrapEligible(streamErr) {
+						contextTooLargeBootstrap := isContextTooLargeStreamBootstrapError(streamErr)
+						if contextTooLargeBootstrap && !contextTooLargeFreeRetryDone {
+							contextTooLargeFreeRetryDone = true
+							opts = withDisallowFreeAuthMetadata(opts)
+							bootstrapRetries++
+							retryResult, retryErr := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
+							if retryErr == nil {
+								if passthroughHeadersEnabled {
+									replaceHeader(upstreamHeaders, FilterUpstreamHeaders(retryResult.Headers))
+								}
+								chunks = retryResult.Chunks
+								continue outer
+							}
+							streamErr = enrichAuthSelectionError(retryErr, providers, normalizedModel)
+						} else if bootstrapRetries < maxBootstrapRetries && bootstrapEligible(streamErr) {
 							bootstrapRetries++
 							retryResult, retryErr := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
 							if retryErr == nil {
@@ -836,6 +855,34 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 		}
 	}()
 	return dataChan, upstreamHeaders, errChan
+}
+
+func isContextTooLargeStreamBootstrapError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "context_too_large") ||
+		strings.Contains(msg, "context_length_exceeded") ||
+		strings.Contains(msg, "context window") ||
+		strings.Contains(msg, "context length")
+}
+
+func withDisallowFreeAuthMetadata(opts coreexecutor.Options) coreexecutor.Options {
+	if len(opts.Metadata) == 0 {
+		opts.Metadata = map[string]any{coreexecutor.DisallowFreeAuthMetadataKey: true}
+		return opts
+	}
+	if value, ok := opts.Metadata[coreexecutor.DisallowFreeAuthMetadataKey].(bool); ok && value {
+		return opts
+	}
+	meta := make(map[string]any, len(opts.Metadata)+1)
+	for k, v := range opts.Metadata {
+		meta[k] = v
+	}
+	meta[coreexecutor.DisallowFreeAuthMetadataKey] = true
+	opts.Metadata = meta
+	return opts
 }
 
 func validateSSEDataJSON(chunk []byte) error {
