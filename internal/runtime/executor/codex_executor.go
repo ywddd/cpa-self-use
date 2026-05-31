@@ -249,6 +249,16 @@ func NewCodexExecutor(cfg *config.Config) *CodexExecutor { return &CodexExecutor
 
 func (e *CodexExecutor) Identifier() string { return "codex" }
 
+func translateCodexRequestPair(from, to sdktranslator.Format, model string, originalPayload, payload []byte, stream bool) ([]byte, []byte) {
+	if bytes.Equal(originalPayload, payload) {
+		body := sdktranslator.TranslateRequest(from, to, model, payload, stream)
+		return body, body
+	}
+	originalTranslated := sdktranslator.TranslateRequest(from, to, model, originalPayload, stream)
+	body := sdktranslator.TranslateRequest(from, to, model, payload, stream)
+	return originalTranslated, body
+}
+
 // PrepareRequest injects Codex credentials into the outgoing HTTP request.
 func (e *CodexExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if req == nil {
@@ -306,8 +316,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
-	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, false)
-	body := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, false)
+	originalTranslated, body := translateCodexRequestPair(from, to, baseModel, originalPayload, req.Payload, false)
 
 	body, err = thinking.ApplyThinking(body, req.Model, from.String(), to.String(), e.Identifier())
 	if err != nil {
@@ -327,6 +336,8 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
 		body = ensureImageGenerationTool(body, baseModel, auth)
 	}
+	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex executor", body)
+	reporter.SetTranslatedReasoningEffort(body, to.String())
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
 	httpReq, err := e.cacheHelper(ctx, from, url, req, body)
@@ -352,6 +363,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		AuthValue: authValue,
 	})
 	httpClient := newCodexHTTPClient(ctx, e.cfg, auth)
+	httpClient = reporter.TrackHTTPClient(httpClient)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -368,7 +380,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
 		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, b) {
-			if strippedBody, changed := stripInvalidEncryptedContentFromResponsesBody(body); changed {
+			if strippedBody, changed := stripReasoningContextForRetry(body, b); changed {
 				helps.LogWithRequestID(ctx).Warn("codex executor: retrying once without encrypted reasoning context after upstream request error")
 				retryReq, retryBuildErr := e.cacheHelper(ctx, from, url, req, strippedBody)
 				if retryBuildErr != nil {
@@ -513,8 +525,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
-	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, false)
-	body := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, false)
+	originalTranslated, body := translateCodexRequestPair(from, to, baseModel, originalPayload, req.Payload, false)
 
 	body, err = thinking.ApplyThinking(body, req.Model, from.String(), to.String(), e.Identifier())
 	if err != nil {
@@ -530,6 +541,8 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
 		body = ensureImageGenerationTool(body, baseModel, auth)
 	}
+	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex executor", body)
+	reporter.SetTranslatedReasoningEffort(body, to.String())
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses/compact"
 	httpReq, err := e.cacheHelper(ctx, from, url, req, body)
@@ -555,6 +568,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		AuthValue: authValue,
 	})
 	httpClient := newCodexHTTPClient(ctx, e.cfg, auth)
+	httpClient = reporter.TrackHTTPClient(httpClient)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -571,7 +585,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
 		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, b) {
-			if strippedBody, changed := stripInvalidEncryptedContentFromResponsesBody(body); changed {
+			if strippedBody, changed := stripReasoningContextForRetry(body, b); changed {
 				helps.LogWithRequestID(ctx).Warn("codex compact executor: retrying once without encrypted reasoning context after upstream request error")
 				retryReq, retryBuildErr := e.cacheHelper(ctx, from, url, req, strippedBody)
 				if retryBuildErr != nil {
@@ -658,8 +672,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
-	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
-	body := sdktranslator.TranslateRequest(from, to, baseModel, req.Payload, true)
+	originalTranslated, body := translateCodexRequestPair(from, to, baseModel, originalPayload, req.Payload, true)
 
 	body, err = thinking.ApplyThinking(body, req.Model, from.String(), to.String(), e.Identifier())
 	if err != nil {
@@ -678,6 +691,8 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
 		body = ensureImageGenerationTool(body, baseModel, auth)
 	}
+	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex executor", body)
+	reporter.SetTranslatedReasoningEffort(body, to.String())
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
 	httpReq, err := e.cacheHelper(ctx, from, url, req, body)
@@ -706,6 +721,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	httpClient := newCodexHTTPClient(ctx, e.cfg, auth)
 	upstreamStarted := time.Now()
 	helps.LogWithRequestID(ctx).Infof("codex stream executor: upstream request started | model=%s", baseModel)
+	httpClient = reporter.TrackHTTPClient(httpClient)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
@@ -733,7 +749,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		helps.AppendAPIResponseChunk(ctx, e.cfg, data)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
 		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, data) {
-			if strippedBody, changed := stripInvalidEncryptedContentFromResponsesBody(body); changed {
+			if strippedBody, changed := stripReasoningContextForRetry(body, data); changed {
 				helps.LogWithRequestID(ctx).Warn("codex stream executor: retrying once without encrypted reasoning context after upstream request error")
 				retryReq, retryBuildErr := e.cacheHelper(ctx, from, url, req, strippedBody)
 				if retryBuildErr != nil {
@@ -896,7 +912,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				eventType = gjson.GetBytes(data, "type").String()
 				if streamErr, ok := codexTerminalStreamContextLengthErr(data); ok {
 					if !downstreamStarted && !retriedWithoutEncryptedReasoning {
-						if strippedBody, changed := stripInvalidEncryptedContentFromResponsesBody(body); changed {
+						if strippedBody, changed := stripReasoningContextForRetry(body, data); changed {
 							helps.LogWithRequestID(ctx).Warn("codex stream executor: terminal stream context error before downstream output; retrying once without encrypted reasoning context")
 							if errClose := httpResp.Body.Close(); errClose != nil {
 								log.Errorf("codex executor: close failed stream response body error: %v", errClose)

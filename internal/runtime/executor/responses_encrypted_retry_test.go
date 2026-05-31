@@ -74,3 +74,45 @@ func TestStripInvalidEncryptedContentFromResponsesBody(t *testing.T) {
 		t.Fatalf("encrypted_content should be removed from retry body: %s", got)
 	}
 }
+
+func TestStripReasoningContextForRetryRemovesReasoningWithoutEncryptedContent(t *testing.T) {
+	raw := []byte(`{
+		"model":"gpt-5.4",
+		"input":[
+			{"type":"reasoning","id":"rs_sanitized","summary":[]},
+			{"type":"message","role":"user","content":"hello"}
+		]
+	}`)
+	errBody := []byte(`{"error":{"code":"context_too_large","message":"Your input exceeds the context window of this model."}}`)
+
+	got, changed := stripReasoningContextForRetry(raw, errBody)
+	if !changed {
+		t.Fatalf("expected body to be changed")
+	}
+	items := gjson.GetBytes(got, "input").Array()
+	if len(items) != 1 {
+		t.Fatalf("expected reasoning item to be removed, got %d items: %s", len(items), got)
+	}
+	if typ := gjson.GetBytes(got, "input.0.type").String(); typ != "message" {
+		t.Fatalf("message input should remain, got %q; body=%s", typ, got)
+	}
+}
+
+func TestStripReasoningContextForRetryAcceptsStreamFailedEvent(t *testing.T) {
+	raw := []byte(`{
+		"model":"gpt-5.4",
+		"input":[
+			{"type":"reasoning","id":"rs_sanitized","summary":[]},
+			{"type":"message","role":"user","content":"hello"}
+		]
+	}`)
+	errBody := []byte(`{"type":"response.failed","response":{"error":{"code":"context_too_large","message":"Your input exceeds the context window of this model."}}}`)
+
+	got, changed := stripReasoningContextForRetry(raw, errBody)
+	if !changed {
+		t.Fatalf("expected body to be changed")
+	}
+	if typ := gjson.GetBytes(got, "input.0.type").String(); typ != "message" {
+		t.Fatalf("message input should remain, got %q; body=%s", typ, got)
+	}
+}

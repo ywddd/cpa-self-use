@@ -71,6 +71,44 @@ func stripInvalidEncryptedContentFromResponsesBody(body []byte) ([]byte, bool) {
 	return stripped, true
 }
 
+func stripReasoningItemsFromResponsesBody(body []byte) ([]byte, bool) {
+	var root map[string]any
+	if err := json.Unmarshal(body, &root); err != nil || root == nil {
+		return body, false
+	}
+	input, ok := root["input"]
+	if !ok {
+		return body, false
+	}
+	strippedInput, changed, keep := stripReasoningItemsValue(input, false)
+	if !changed {
+		return body, false
+	}
+	if keep {
+		root["input"] = strippedInput
+	} else {
+		delete(root, "input")
+	}
+	stripped, err := json.Marshal(root)
+	if err != nil {
+		return body, false
+	}
+	return stripped, true
+}
+
+func stripReasoningContextForRetry(requestBody, errorBody []byte) ([]byte, bool) {
+	isContextLength := codexTerminalErrorIsContextLength(errorBody)
+	if !isContextLength {
+		_, isContextLength = codexTerminalStreamContextLengthErr(errorBody)
+	}
+	if isContextLength {
+		if stripped, changed := stripReasoningItemsFromResponsesBody(requestBody); changed {
+			return stripped, true
+		}
+	}
+	return stripInvalidEncryptedContentFromResponsesBody(requestBody)
+}
+
 func stripInvalidEncryptedContentValue(value any, arrayItem bool) (any, bool, bool) {
 	switch v := value.(type) {
 	case []any:
@@ -104,6 +142,45 @@ func stripInvalidEncryptedContentValue(value any, arrayItem bool) (any, bool, bo
 		}
 		for key, child := range v {
 			stripped, childChanged, keep := stripInvalidEncryptedContentValue(child, false)
+			if childChanged {
+				changed = true
+			}
+			if keep {
+				v[key] = stripped
+			} else {
+				delete(v, key)
+			}
+		}
+		return v, changed, true
+	default:
+		return value, false, true
+	}
+}
+
+func stripReasoningItemsValue(value any, arrayItem bool) (any, bool, bool) {
+	switch v := value.(type) {
+	case []any:
+		changed := false
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			stripped, itemChanged, keep := stripReasoningItemsValue(item, true)
+			if itemChanged {
+				changed = true
+			}
+			if !keep {
+				changed = true
+				continue
+			}
+			out = append(out, stripped)
+		}
+		return out, changed, true
+	case map[string]any:
+		if strings.TrimSpace(firstNonEmptyAnyString(v["type"])) == "reasoning" && arrayItem {
+			return nil, true, false
+		}
+		changed := false
+		for key, child := range v {
+			stripped, childChanged, keep := stripReasoningItemsValue(child, false)
 			if childChanged {
 				changed = true
 			}
