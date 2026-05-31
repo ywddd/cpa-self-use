@@ -677,10 +677,7 @@ func codexPlanType(auth *coreauth.Auth) string {
 			}
 		}
 	}
-	if planType := codexPlanTypeFromFileName(auth.FileName); planType != "" {
-		return planType
-	}
-	return codexPlanTypeFromFileName(auth.ID)
+	return ""
 }
 
 func codexPlanTypeFromFileName(name string) string {

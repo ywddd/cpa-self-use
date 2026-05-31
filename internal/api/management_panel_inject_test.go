@@ -31,4 +31,13 @@ func TestPatchManagementAuthFilesFilters(t *testing.T) {
 			t.Fatalf("patched output missing %q", want)
 		}
 	}
+	for _, forbidden := range [][]byte{
+		[]byte("e.name??"),
+		[]byte("iT(e,t)??"),
+		[]byte("cpaIsFreeAuth(e,i[e.name])"),
+	} {
+		if bytes.Contains(out, forbidden) {
+			t.Fatalf("patched output should not use name-derived plan text %q", forbidden)
+		}
+	}
 }

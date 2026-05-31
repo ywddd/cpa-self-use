@@ -197,12 +197,6 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 				}
 			}
 		}
-		if _, ok := a.Attributes["plan_type"]; !ok {
-			if planType := codexPlanTypeFromFileName(id); planType != "" {
-				a.Attributes["plan_type"] = planType
-				a.Attributes["chatgpt_plan_type"] = planType
-			}
-		}
 	}
 	if provider == "gemini-cli" {
 		if virtuals := SynthesizeGeminiVirtualAuths(a, metadata, now); len(virtuals) > 0 {

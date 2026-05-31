@@ -793,7 +793,7 @@ func injectManagementAuthFileTestUI(html []byte) []byte {
 func patchManagementAuthFilesFilters(html []byte) []byte {
 	html = bytes.Replace(html,
 		[]byte("aT=(e,t)=>{let n=z_(iT(e,t));return n?n===`pro`?50:Xw.has(n)&&n!==`pro`?40:n===`team`?30:n===`plus`?20:n===`free`?10:0:null},oT="),
-		[]byte("aT=(e,t)=>{let n=z_(iT(e,t));return n?n===`pro`?50:Xw.has(n)&&n!==`pro`?40:n===`team`?30:n===`plus`?20:n===`free`?10:0:null},cpaAuthTime=e=>{let t=Date.parse(e.created_at??e.createdAt??e.modtime??e.updated_at??e.updatedAt??0);return Number.isFinite(t)?t:0},cpaPlanText=(e,t)=>String(iT(e,t)??e.id_token?.plan_type??e.plan_type??e.chatgpt_plan_type??e.name??``).toLowerCase(),cpaIsFreeAuth=(e,t)=>cpaPlanText(e,t).includes(`free`),cpaIsPlusAuth=(e,t)=>cpaPlanText(e,t).includes(`plus`),oT="),
+		[]byte("aT=(e,t)=>{let n=z_(iT(e,t));return n?n===`pro`?50:Xw.has(n)&&n!==`pro`?40:n===`team`?30:n===`plus`?20:n===`free`?10:0:null},cpaAuthTime=e=>{let t=Date.parse(e.created_at??e.createdAt??e.modtime??e.updated_at??e.updatedAt??0);return Number.isFinite(t)?t:0},cpaPlanText=e=>String(e.id_token?.plan_type??e.plan_type??e.chatgpt_plan_type??``).toLowerCase(),cpaIsFreeAuth=e=>cpaPlanText(e).split(/[^a-z0-9]+/).includes(`free`),cpaIsPlusAuth=e=>cpaPlanText(e).split(/[^a-z0-9]+/).includes(`plus`),oT="),
 		1)
 	html = bytes.Replace(html,
 		[]byte("[c,l]=(0,y.useState)(`all`),[u,d]=(0,y.useState)(!1),[f,p]=(0,y.useState)(!1),[m,h]=(0,y.useState)(!1),[g,_]=(0,y.useState)(!1),"),
@@ -813,7 +813,7 @@ func patchManagementAuthFilesFilters(html []byte) []byte {
 		1)
 	html = bytes.Replace(html,
 		[]byte("pt=(0,y.useMemo)(()=>ne.filter(e=>!(u&&!Xx(e)||f&&e.disabled!==!0||m&&!Zx(e))),[f,ne,m,u])"),
-		[]byte("pt=(0,y.useMemo)(()=>ne.filter(e=>!(u&&!Xx(e)||f&&e.disabled!==!0||m&&!Zx(e)||((cpaFreeOnly||cpaPlusOnly)&&!((cpaFreeOnly&&cpaIsFreeAuth(e,i[e.name]))||(cpaPlusOnly&&cpaIsPlusAuth(e,i[e.name])))))),[cpaFreeOnly,cpaPlusOnly,f,i,ne,m,u])"),
+		[]byte("pt=(0,y.useMemo)(()=>ne.filter(e=>!(u&&!Xx(e)||f&&e.disabled!==!0||m&&!Zx(e)||((cpaFreeOnly||cpaPlusOnly)&&!((cpaFreeOnly&&cpaIsFreeAuth(e))||(cpaPlusOnly&&cpaIsPlusAuth(e))))))),[cpaFreeOnly,cpaPlusOnly,f,ne,m,u])"),
 		1)
 	html = bytes.Replace(html,
 		[]byte("{value:`plan-desc`,label:e(`auth_files.sort_plan_desc`)},{value:`plan-asc`,label:e(`auth_files.sort_plan_asc`)}"),

@@ -210,7 +210,7 @@ func TestFileSynthesizer_Synthesize_CodexAccountFields(t *testing.T) {
 	}
 }
 
-func TestFileSynthesizer_Synthesize_CodexJWTUserIDAndFilenamePlanFallback(t *testing.T) {
+func TestFileSynthesizer_Synthesize_CodexJWTUserIDWithoutFilenamePlanFallback(t *testing.T) {
 	tempDir := t.TempDir()
 
 	authData := map[string]any{
@@ -244,11 +244,11 @@ func TestFileSynthesizer_Synthesize_CodexJWTUserIDAndFilenamePlanFallback(t *tes
 	if got := auths[0].Attributes["chatgpt_account_id"]; got != "user-123" {
 		t.Fatalf("chatgpt_account_id attribute = %q, want user-123", got)
 	}
-	if got := auths[0].Attributes["plan_type"]; got != "free" {
-		t.Fatalf("plan_type attribute = %q, want free", got)
+	if got, ok := auths[0].Attributes["plan_type"]; ok {
+		t.Fatalf("did not expect filename-derived plan_type attribute, got %q", got)
 	}
-	if got := auths[0].Attributes["chatgpt_plan_type"]; got != "free" {
-		t.Fatalf("chatgpt_plan_type attribute = %q, want free", got)
+	if got, ok := auths[0].Attributes["chatgpt_plan_type"]; ok {
+		t.Fatalf("did not expect filename-derived chatgpt_plan_type attribute, got %q", got)
 	}
 }
 

@@ -122,7 +122,7 @@ func TestListAuthFiles_IncludesCodexAccountFieldsFromManager(t *testing.T) {
 	}
 }
 
-func TestListAuthFiles_CodexFallsBackToJWTUserIDAndFilenamePlan(t *testing.T) {
+func TestListAuthFiles_CodexFallsBackToJWTUserIDWithoutFilenamePlan(t *testing.T) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
 	gin.SetMode(gin.TestMode)
 
@@ -162,8 +162,8 @@ func TestListAuthFiles_CodexFallsBackToJWTUserIDAndFilenamePlan(t *testing.T) {
 	if got := entry["chatgpt_account_id"]; got != "user-123" {
 		t.Fatalf("expected chatgpt_account_id fallback %q, got %#v", "user-123", got)
 	}
-	if got := entry["plan_type"]; got != "free" {
-		t.Fatalf("expected plan_type filename fallback %q, got %#v", "free", got)
+	if got, ok := entry["plan_type"]; ok {
+		t.Fatalf("did not expect filename-derived plan_type, got %#v", got)
 	}
 }
 
