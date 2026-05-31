@@ -875,6 +875,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		outputItemsByIndex := make(map[int64][]byte)
 		var outputItemsFallback [][]byte
 		firstUpstreamChunk := false
+		sawResponseCompleted := false
 		downstreamStarted := false
 		var pendingLines [][]byte
 		sendLine := func(line []byte) bool {
@@ -950,6 +951,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				case "response.output_item.done":
 					collectCodexOutputItemDone(data, outputItemsByIndex, &outputItemsFallback)
 				case "response.completed":
+					sawResponseCompleted = true
 					if detail, ok := helps.ParseCodexUsage(data); ok {
 						reporter.Publish(ctx, detail)
 					}
@@ -997,6 +999,44 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		}
 		if !firstUpstreamChunk {
 			helps.LogWithRequestID(ctx).Infof("codex stream executor: upstream stream ended without chunks | total_elapsed=%s", time.Since(upstreamStarted).Round(time.Millisecond))
+		}
+		if !sawResponseCompleted {
+			streamErr := statusErr{code: http.StatusBadGateway, msg: "codex stream closed before response.completed"}
+			helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
+			helps.LogWithRequestID(ctx).Warnf("codex stream executor: upstream stream closed before response.completed | downstream_started=%t first_chunk=%t total_elapsed=%s", downstreamStarted, firstUpstreamChunk, time.Since(upstreamStarted).Round(time.Millisecond))
+			if !downstreamStarted && !retriedWithoutEncryptedReasoning {
+				if strippedBody, changed := stripReasoningItemsFromResponsesBody(body); changed {
+					helps.LogWithRequestID(ctx).Warn("codex stream executor: closed before response.completed; retrying once without reasoning context")
+					if errClose := httpResp.Body.Close(); errClose != nil {
+						log.Errorf("codex executor: close incomplete stream response body error: %v", errClose)
+					}
+					retryResp, retryErr := startEncryptedReasoningStreamRetry(strippedBody)
+					if retryErr != nil {
+						helps.RecordAPIResponseError(ctx, e.cfg, retryErr)
+						reporter.PublishFailure(ctx, retryErr)
+						select {
+						case out <- cliproxyexecutor.StreamChunk{Err: retryErr}:
+						case <-ctx.Done():
+							helps.LogWithRequestID(ctx).Warnf("codex stream executor: downstream context canceled while forwarding incomplete stream retry error | total_elapsed=%s context_err=%v", time.Since(upstreamStarted).Round(time.Millisecond), ctx.Err())
+						}
+						return
+					}
+					httpResp = retryResp
+					body = strippedBody
+					retriedWithoutEncryptedReasoning = true
+					pendingLines = nil
+					goto attempt
+				}
+			}
+			if downstreamStarted {
+				reporter.PublishFailure(ctx, streamErr)
+			}
+			select {
+			case out <- cliproxyexecutor.StreamChunk{Err: streamErr}:
+			case <-ctx.Done():
+				helps.LogWithRequestID(ctx).Warnf("codex stream executor: downstream context canceled while forwarding incomplete stream error | total_elapsed=%s context_err=%v", time.Since(upstreamStarted).Round(time.Millisecond), ctx.Err())
+			}
+			return
 		}
 	}()
 	return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
