@@ -946,7 +946,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			return true
 		}
 		for scanner.Scan() {
-			line := applyCodexIdentityConfuseResponsePayload(scanner.Bytes(), identityState)
+			line := bytes.Clone(applyCodexIdentityConfuseResponsePayload(scanner.Bytes(), identityState))
 			if !firstUpstreamChunk {
 				firstUpstreamChunk = true
 				helps.LogWithRequestID(ctx).Infof("codex stream executor: first upstream stream chunk received | since_headers=%s total_elapsed=%s bytes=%d", time.Since(streamHeadersReceivedAt).Round(time.Millisecond), time.Since(upstreamStarted).Round(time.Millisecond), len(line))

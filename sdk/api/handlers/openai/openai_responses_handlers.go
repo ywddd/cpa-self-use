@@ -313,12 +313,12 @@ func responsesSSENeedsLineBreak(pending, chunk []byte) bool {
 	if len(trimmed) == 0 {
 		return false
 	}
-	for _, prefix := range [][]byte{[]byte("data:"), []byte("event:"), []byte("id:"), []byte("retry:"), []byte(":")} {
+	for _, prefix := range [][]byte{[]byte("data:"), []byte("event:"), []byte("id:"), []byte("retry:")} {
 		if bytes.HasPrefix(trimmed, prefix) {
 			return true
 		}
 	}
-	return false
+	return bytes.HasPrefix(trimmed, []byte(": ")) || bytes.Equal(trimmed, []byte(":"))
 }
 
 // OpenAIResponsesAPIHandler contains the handlers for OpenAIResponses API endpoints.
