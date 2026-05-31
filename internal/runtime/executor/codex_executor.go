@@ -161,7 +161,7 @@ func codexTerminalStreamContextLengthErr(eventData []byte) (statusErr, bool) {
 
 func codexStreamEventCanStartDownstream(eventType string) bool {
 	switch eventType {
-	case "", "response.created", "response.in_progress":
+	case "", "response.created", "response.in_progress", "response.output_item.added", "response.content_part.added", "response.reasoning_summary_part.added":
 		return false
 	default:
 		return true

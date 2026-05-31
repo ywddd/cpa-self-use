@@ -265,6 +265,76 @@ func TestCodexExecutorExecuteStreamRetriesIncompleteBootstrapWithoutReasoningCon
 	}
 }
 
+func TestCodexExecutorExecuteStreamRetriesIncompleteBeforeContentDeltaWithoutReasoningContext(t *testing.T) {
+	var calls int
+	var retryBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		calls++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if calls == 1 {
+			_, _ = w.Write([]byte("event: response.created\n"))
+			_, _ = w.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_incomplete","model":"gpt-5.5"}}` + "\n\n"))
+			_, _ = w.Write([]byte("event: response.output_item.added\n"))
+			_, _ = w.Write([]byte(`data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"in_progress","content":[]}}` + "\n\n"))
+			_, _ = w.Write([]byte("event: response.content_part.added\n"))
+			_, _ = w.Write([]byte(`data: {"type":"response.content_part.added","item_id":"msg_1","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}` + "\n\n"))
+			return
+		}
+		retryBody = append([]byte(nil), body...)
+		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_ok","object":"response","created_at":1775555723,"status":"completed","model":"gpt-5.5","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}` + "\n\n"))
+	}))
+	defer server.Close()
+
+	executor := NewCodexExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"base_url": server.URL,
+		"api_key":  "test",
+	}}
+
+	result, err := executor.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model: "gpt-5.5",
+		Payload: []byte(`{
+			"model":"gpt-5.5",
+			"input":[
+				{"type":"reasoning","id":"rs_sanitized","summary":[]},
+				{"type":"message","role":"user","content":"hello"}
+			]
+		}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FromString("openai-response"),
+		Stream:       true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream error: %v", err)
+	}
+
+	var completed []byte
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("stream chunk error: %v", chunk.Err)
+		}
+		payload := bytes.TrimSpace(chunk.Payload)
+		if !bytes.HasPrefix(payload, []byte("data:")) {
+			continue
+		}
+		data := bytes.TrimSpace(payload[5:])
+		if gjson.GetBytes(data, "type").String() == "response.completed" {
+			completed = append([]byte(nil), data...)
+		}
+	}
+
+	if calls != 2 {
+		t.Fatalf("upstream calls = %d, want 2", calls)
+	}
+	if got := gjson.GetBytes(retryBody, "input.0.type").String(); got == "reasoning" {
+		t.Fatalf("retry input should remove reasoning items: %s", string(retryBody))
+	}
+	if got := gjson.GetBytes(completed, "response.output.0.content.0.text").String(); got != "ok" {
+		t.Fatalf("completed text = %q, want ok; completed=%s", got, string(completed))
+	}
+}
+
 func TestCodexTerminalStreamContextLengthErrFromResponseFailed(t *testing.T) {
 	err, ok := codexTerminalStreamContextLengthErr([]byte(`{"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}`))
 	if !ok {
