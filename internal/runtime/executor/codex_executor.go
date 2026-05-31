@@ -984,8 +984,8 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 						}
 					}
 					if !downstreamStarted && !retriedWithTextHistoryFallback {
-						if fallbackBody, changed := buildTextFileHistoryContextFallbackForRetry(body, data); changed {
-							helps.LogWithRequestID(ctx).Warn("codex stream executor: terminal context error persisted; retrying once with text file history fallback")
+						if fallbackBody, changed := buildCompactInputContextFallbackForRetry(body, data); changed {
+							helps.LogWithRequestID(ctx).Warn("codex stream executor: terminal context error persisted; retrying once with compact input fallback")
 							if errClose := httpResp.Body.Close(); errClose != nil {
 								log.Errorf("codex executor: close failed stream response body error: %v", errClose)
 							}

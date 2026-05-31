@@ -204,10 +204,10 @@ func TestCodexExecutorExecuteStreamRetriesTerminalContextErrorWithoutEncryptedRe
 	}
 }
 
-func TestCodexExecutorExecuteStreamRetriesTerminalContextErrorWithTextFileHistoryFallback(t *testing.T) {
+func TestCodexExecutorExecuteStreamRetriesTerminalContextErrorWithCompactInputFallback(t *testing.T) {
 	var calls int
 	var reasoningRetryBody []byte
-	var textFallbackBody []byte
+	var compactFallbackBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		calls++
@@ -219,7 +219,7 @@ func TestCodexExecutorExecuteStreamRetriesTerminalContextErrorWithTextFileHistor
 			reasoningRetryBody = append([]byte(nil), body...)
 			_, _ = w.Write([]byte(`data: {"type":"response.failed","response":{"id":"resp_bad_2","status":"failed","error":{"code":"context_too_large","message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}` + "\n\n"))
 		default:
-			textFallbackBody = append([]byte(nil), body...)
+			compactFallbackBody = append([]byte(nil), body...)
 			_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_ok","object":"response","created_at":1775555723,"status":"completed","model":"gpt-5.5","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}` + "\n\n"))
 		}
 	}))
@@ -240,6 +240,8 @@ func TestCodexExecutorExecuteStreamRetriesTerminalContextErrorWithTextFileHistor
 				{"type":"message","role":"user","content":[{"type":"input_text","text":"之前的问题"}]},
 				{"type":"message","role":"assistant","content":[{"type":"output_text","text":"之前的回答"}]},
 				{"type":"reasoning","id":"rs_bad","encrypted_content":"gAAA"},
+				{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{\"path\":\"a.txt\"}"},
+				{"type":"function_call_output","call_id":"call_1","output":"文件内容"},
 				{"type":"message","role":"user","content":[{"type":"input_text","text":"最后的要求"}]}
 			]
 		}`),
@@ -272,26 +274,26 @@ func TestCodexExecutorExecuteStreamRetriesTerminalContextErrorWithTextFileHistor
 	if strings.Contains(gjson.GetBytes(reasoningRetryBody, "input").Raw, "encrypted_content") {
 		t.Fatalf("reasoning retry input should remove encrypted_content: %s", string(reasoningRetryBody))
 	}
-	if gjson.GetBytes(textFallbackBody, "previous_response_id").Exists() {
-		t.Fatalf("text fallback should remove previous_response_id: %s", string(textFallbackBody))
+	if gjson.GetBytes(compactFallbackBody, "previous_response_id").Exists() {
+		t.Fatalf("compact fallback should remove previous_response_id: %s", string(compactFallbackBody))
 	}
-	if gjson.GetBytes(textFallbackBody, "include").Exists() {
-		t.Fatalf("text fallback should remove include: %s", string(textFallbackBody))
+	if gjson.GetBytes(compactFallbackBody, "include").Exists() {
+		t.Fatalf("compact fallback should remove include: %s", string(compactFallbackBody))
 	}
-	if typ := gjson.GetBytes(textFallbackBody, "input.0.content.1.type").String(); typ != "input_file" {
-		t.Fatalf("text fallback should attach history as input_file, got %q: %s", typ, string(textFallbackBody))
+	items := gjson.GetBytes(compactFallbackBody, "input").Array()
+	if len(items) != 1 {
+		t.Fatalf("compact fallback should keep only the last user item here, got %d: %s", len(items), string(compactFallbackBody))
 	}
-	if filename := gjson.GetBytes(textFallbackBody, "input.0.content.1.filename").String(); filename != "history.txt" {
-		t.Fatalf("text fallback filename = %q, want history.txt; body=%s", filename, string(textFallbackBody))
+	if role := gjson.GetBytes(compactFallbackBody, "input.0.role").String(); role != "user" {
+		t.Fatalf("compact fallback role = %q, want user: %s", role, string(compactFallbackBody))
 	}
-	fileData := gjson.GetBytes(textFallbackBody, "input.0.content.1.file_data").String()
-	if !strings.HasPrefix(fileData, "data:text/plain;base64,") {
-		t.Fatalf("text fallback file_data should be text/plain data URI: %s", fileData)
+	compactInput := gjson.GetBytes(compactFallbackBody, "input").Raw
+	if !strings.Contains(compactInput, "最后的要求") {
+		t.Fatalf("compact fallback missing last user request: %s", compactInput)
 	}
-	textInput := gjson.GetBytes(textFallbackBody, "input").Raw
-	for _, want := range []string{"history.txt", "用户最后一条要求", "最后的要求"} {
-		if !strings.Contains(textInput, want) {
-			t.Fatalf("text fallback missing %q: %s", want, textInput)
+	for _, forbidden := range []string{"history.txt", "read_file", "a.txt", "文件内容", "之前的回答"} {
+		if strings.Contains(compactInput, forbidden) {
+			t.Fatalf("compact fallback should not keep historical detail %q: %s", forbidden, compactInput)
 		}
 	}
 	if got := gjson.GetBytes(completed, "response.output.0.content.0.text").String(); got != "ok" {

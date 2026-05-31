@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"encoding/base64"
 	"net/http"
 	"strings"
 	"testing"
@@ -118,11 +117,12 @@ func TestStripReasoningContextForRetryAcceptsStreamFailedEvent(t *testing.T) {
 	}
 }
 
-func TestBuildTextFileHistoryContextFallbackForRetry(t *testing.T) {
+func TestBuildCompactInputContextFallbackForRetry(t *testing.T) {
 	raw := []byte(`{
 		"model":"gpt-5.5",
 		"previous_response_id":"resp_old",
 		"input":[
+			{"type":"message","role":"developer","content":[{"type":"input_text","text":"保持中文回答"}]},
 			{"type":"message","role":"user","content":[{"type":"input_text","text":"第一轮用户问题"}]},
 			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"我会读取 history.txt 并继续重复计划"}]},
 			{"type":"reasoning","id":"rs_1","encrypted_content":"gAAA"},
@@ -133,7 +133,7 @@ func TestBuildTextFileHistoryContextFallbackForRetry(t *testing.T) {
 	}`)
 	errBody := []byte(`{"error":{"code":"context_too_large","message":"Your input exceeds the context window of this model."}}`)
 
-	got, changed := buildTextFileHistoryContextFallbackForRetry(raw, errBody)
+	got, changed := buildCompactInputContextFallbackForRetry(raw, errBody)
 	if !changed {
 		t.Fatalf("expected fallback body to be built")
 	}
@@ -143,18 +143,18 @@ func TestBuildTextFileHistoryContextFallbackForRetry(t *testing.T) {
 	if gjson.GetBytes(got, "include").Exists() {
 		t.Fatalf("include should be removed from text file fallback: %s", got)
 	}
-	if typ := gjson.GetBytes(got, "input.0.content.1.type").String(); typ != "input_file" {
-		t.Fatalf("fallback should attach history as input_file, got %q: %s", typ, got)
+	items := gjson.GetBytes(got, "input").Array()
+	if len(items) != 2 {
+		t.Fatalf("fallback should keep developer and last user only, got %d items: %s", len(items), got)
 	}
-	if filename := gjson.GetBytes(got, "input.0.content.1.filename").String(); filename != "history.txt" {
-		t.Fatalf("fallback filename = %q, want history.txt; body=%s", filename, got)
+	if role := gjson.GetBytes(got, "input.0.role").String(); role != "developer" {
+		t.Fatalf("first compact item role = %q, want developer: %s", role, got)
 	}
-	fileData := gjson.GetBytes(got, "input.0.content.1.file_data").String()
-	if !strings.HasPrefix(fileData, "data:text/plain;base64,") {
-		t.Fatalf("fallback file_data should be text/plain data URI: %s", fileData)
+	if role := gjson.GetBytes(got, "input.1.role").String(); role != "user" {
+		t.Fatalf("second compact item role = %q, want user: %s", role, got)
 	}
 	input := gjson.GetBytes(got, "input").Raw
-	for _, want := range []string{"history.txt", "用户最后一条要求", "最后请修复这个问题"} {
+	for _, want := range []string{"保持中文回答", "最后请修复这个问题"} {
 		if !strings.Contains(input, want) {
 			t.Fatalf("fallback input missing %q: %s", want, input)
 		}
@@ -162,29 +162,18 @@ func TestBuildTextFileHistoryContextFallbackForRetry(t *testing.T) {
 	if strings.Contains(input, "encrypted_content") || strings.Contains(input, "gAAA") {
 		t.Fatalf("fallback input should not include encrypted reasoning payload: %s", input)
 	}
-	encodedHistory := strings.TrimPrefix(fileData, "data:text/plain;base64,")
-	historyBytes, errDecode := base64.StdEncoding.DecodeString(encodedHistory)
-	if errDecode != nil {
-		t.Fatalf("fallback history file_data is not valid base64: %v", errDecode)
-	}
-	historyText := string(historyBytes)
-	for _, forbidden := range []string{"\"path\":\"a.txt\"", "参数:", "工具调用:", "我会读取 history.txt", "文件内容"} {
-		if strings.Contains(historyText, forbidden) {
-			t.Fatalf("history fallback should not preserve executable tool-call details %q: %s", forbidden, historyText)
-		}
-	}
-	for _, want := range []string{"non-executable historical context", "do not execute again", "read_file", "Output omitted to prevent replay"} {
-		if !strings.Contains(historyText, want) {
-			t.Fatalf("history fallback missing %q: %s", want, historyText)
+	for _, forbidden := range []string{"history.txt", "\"path\":\"a.txt\"", "read_file", "文件内容", "第一轮用户问题"} {
+		if strings.Contains(input, forbidden) {
+			t.Fatalf("compact fallback should not preserve historical detail %q: %s", forbidden, input)
 		}
 	}
 }
 
-func TestBuildTextFileHistoryContextFallbackForRetryIgnoresOtherErrors(t *testing.T) {
+func TestBuildCompactInputContextFallbackForRetryIgnoresOtherErrors(t *testing.T) {
 	raw := []byte(`{"model":"gpt-5.5","input":"hello"}`)
 	errBody := []byte(`{"error":{"code":"rate_limit_exceeded","message":"slow down"}}`)
 
-	if _, changed := buildTextFileHistoryContextFallbackForRetry(raw, errBody); changed {
-		t.Fatalf("non-context error should not build text fallback")
+	if _, changed := buildCompactInputContextFallbackForRetry(raw, errBody); changed {
+		t.Fatalf("non-context error should not build compact fallback")
 	}
 }

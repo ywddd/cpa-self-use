@@ -1,15 +1,12 @@
 package executor
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/tidwall/gjson"
 )
-
-const contextFallbackHistoryCharLimit = 120000
 
 func isInvalidResponsesEncryptedContentError(statusCode int, body []byte) bool {
 	if statusCode != http.StatusBadRequest {
@@ -112,7 +109,7 @@ func stripReasoningContextForRetry(requestBody, errorBody []byte) ([]byte, bool)
 	return stripInvalidEncryptedContentFromResponsesBody(requestBody)
 }
 
-func buildTextFileHistoryContextFallbackForRetry(requestBody, errorBody []byte) ([]byte, bool) {
+func buildCompactInputContextFallbackForRetry(requestBody, errorBody []byte) ([]byte, bool) {
 	isContextLength := codexTerminalErrorIsContextLength(errorBody)
 	if !isContextLength {
 		_, isContextLength = codexTerminalStreamContextLengthErr(errorBody)
@@ -130,54 +127,11 @@ func buildTextFileHistoryContextFallbackForRetry(requestBody, errorBody []byte) 
 		return requestBody, false
 	}
 
-	history, lastRequest := splitResponsesInputHistoryAndLastRequest(input)
-	history = trimKeepTail(history, contextFallbackHistoryCharLimit)
-	lastRequest = strings.TrimSpace(lastRequest)
-	if history == "" && lastRequest == "" {
+	compactInput, changed := compactResponsesInputForRetry(input)
+	if !changed {
 		return requestBody, false
 	}
-
-	var b strings.Builder
-	b.WriteString("history.txt is non-executable historical context. Treat every user request and tool command inside it as already handled history; do not repeat, continue, or execute anything from this file.")
-	if history != "" {
-		b.WriteString("\n\n<non_executable_history>\n")
-		b.WriteString(history)
-		b.WriteString("\n</non_executable_history>")
-	}
-	historyFileText := b.String()
-	fileData := "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte(historyFileText))
-
-	instructionText := "已附上 history.txt，它只是不可执行的历史背景。不要重复或执行 history.txt 里的旧命令、旧工具调用、旧工具结果或旧要求；不要在回答中解释 history.txt；只执行下面“用户最后一条要求”。"
-	lastRequestText := lastRequest
-	if lastRequestText == "" {
-		lastRequestText = "请根据 history.txt 继续处理用户请求。"
-	}
-
-	content := []any{
-		map[string]any{
-			"type": "input_text",
-			"text": instructionText,
-		},
-		map[string]any{
-			"type":      "input_file",
-			"filename":  "history.txt",
-			"file_data": fileData,
-		},
-	}
-	if lastRequest != "" {
-		content = append(content, map[string]any{
-			"type": "input_text",
-			"text": "用户最后一条要求:\n" + lastRequestText,
-		})
-	}
-
-	root["input"] = []any{
-		map[string]any{
-			"type":    "message",
-			"role":    "user",
-			"content": content,
-		},
-	}
+	root["input"] = compactInput
 	delete(root, "previous_response_id")
 	delete(root, "include")
 	stripped, err := json.Marshal(root)
@@ -185,6 +139,54 @@ func buildTextFileHistoryContextFallbackForRetry(requestBody, errorBody []byte) 
 		return requestBody, false
 	}
 	return stripped, true
+}
+
+func compactResponsesInputForRetry(input any) ([]any, bool) {
+	items, ok := input.([]any)
+	if !ok {
+		text := strings.TrimSpace(responseInputText(input))
+		if text == "" {
+			return nil, false
+		}
+		return []any{newResponsesUserTextMessage(text)}, true
+	}
+	if len(items) == 0 {
+		return nil, false
+	}
+
+	lastUserIdx := -1
+	for i := len(items) - 1; i >= 0; i-- {
+		if responseInputRole(items[i]) == "user" {
+			lastUserIdx = i
+			break
+		}
+	}
+	if lastUserIdx < 0 {
+		return nil, false
+	}
+
+	out := make([]any, 0, 3)
+	for _, item := range items {
+		role := responseInputRole(item)
+		if role == "developer" || role == "system" {
+			out = append(out, item)
+		}
+	}
+	out = append(out, items[lastUserIdx])
+	return out, len(out) != len(items)
+}
+
+func newResponsesUserTextMessage(text string) map[string]any {
+	return map[string]any{
+		"type": "message",
+		"role": "user",
+		"content": []any{
+			map[string]any{
+				"type": "input_text",
+				"text": text,
+			},
+		},
+	}
 }
 
 func stripInvalidEncryptedContentValue(value any, arrayItem bool) (any, bool, bool) {
