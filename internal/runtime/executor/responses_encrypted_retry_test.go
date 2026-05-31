@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"encoding/base64"
 	"net/http"
 	"strings"
 	"testing"
@@ -160,6 +161,22 @@ func TestBuildTextFileHistoryContextFallbackForRetry(t *testing.T) {
 	}
 	if strings.Contains(input, "encrypted_content") || strings.Contains(input, "gAAA") {
 		t.Fatalf("fallback input should not include encrypted reasoning payload: %s", input)
+	}
+	encodedHistory := strings.TrimPrefix(fileData, "data:text/plain;base64,")
+	historyBytes, errDecode := base64.StdEncoding.DecodeString(encodedHistory)
+	if errDecode != nil {
+		t.Fatalf("fallback history file_data is not valid base64: %v", errDecode)
+	}
+	historyText := string(historyBytes)
+	for _, forbidden := range []string{"\"path\":\"a.txt\"", "参数:", "工具调用:"} {
+		if strings.Contains(historyText, forbidden) {
+			t.Fatalf("history fallback should not preserve executable tool-call details %q: %s", forbidden, historyText)
+		}
+	}
+	for _, want := range []string{"non-executable historical context", "do not execute again", "read_file", "文件内容"} {
+		if !strings.Contains(historyText, want) {
+			t.Fatalf("history fallback missing %q: %s", want, historyText)
+		}
 	}
 }
 

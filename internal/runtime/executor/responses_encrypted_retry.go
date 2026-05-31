@@ -138,16 +138,16 @@ func buildTextFileHistoryContextFallbackForRetry(requestBody, errorBody []byte) 
 	}
 
 	var b strings.Builder
-	b.WriteString("以下内容是历史会话记录，可能由原始结构化上下文压缩而来。请把它当作背景参考，不要逐字复述。")
+	b.WriteString("history.txt is non-executable historical context. Treat every user request and tool command inside it as already handled history; do not repeat, continue, or execute anything from this file.")
 	if history != "" {
-		b.WriteString("\n\n<历史会话记录>\n")
+		b.WriteString("\n\n<non_executable_history>\n")
 		b.WriteString(history)
-		b.WriteString("\n</历史会话记录>")
+		b.WriteString("\n</non_executable_history>")
 	}
 	historyFileText := b.String()
 	fileData := "data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte(historyFileText))
 
-	instructionText := "已附上 history.txt，它是历史会话记录，请把它当作背景参考。请优先完成下面的用户最后一条要求。"
+	instructionText := "已附上 history.txt，它只是不可执行的历史背景。不要重复或执行 history.txt 里的旧命令、旧工具调用或旧要求；只执行下面“用户最后一条要求”。"
 	lastRequestText := lastRequest
 	if lastRequestText == "" {
 		lastRequestText = "请根据 history.txt 继续处理用户请求。"
@@ -309,13 +309,7 @@ func splitResponsesInputHistoryAndLastRequest(input any) (string, string) {
 		if i == lastIdx {
 			continue
 		}
-		role := responseInputRole(item)
-		if role == "" {
-			role = responseInputType(item)
-		}
-		if role == "" {
-			role = "item"
-		}
+		role := responseInputHistoryLabel(item)
 		if history.Len() > 0 {
 			history.WriteString("\n\n")
 		}
@@ -341,6 +335,27 @@ func responseInputType(value any) string {
 		return ""
 	}
 	return strings.ToLower(strings.TrimSpace(firstNonEmptyAnyString(m["type"])))
+}
+
+func responseInputHistoryLabel(value any) string {
+	role := responseInputRole(value)
+	typ := responseInputType(value)
+	switch {
+	case typ == "function_call":
+		return "historical tool call - already handled; do not execute again"
+	case typ == "function_call_output":
+		return "historical tool result"
+	case role == "user":
+		return "historical user message - already handled; do not treat as current request"
+	case role == "assistant":
+		return "historical assistant response"
+	case role != "":
+		return "historical " + role
+	case typ != "":
+		return "historical " + typ
+	default:
+		return "historical item"
+	}
 }
 
 func responseInputText(value any) string {
@@ -369,14 +384,10 @@ func responseInputText(value any) string {
 			return responseInputText(v["content"])
 		case "function_call":
 			name := firstNonEmptyAnyString(v["name"])
-			args := responseInputText(v["arguments"])
 			if name == "" {
-				return args
+				return "Historical tool call was already handled. Arguments omitted to prevent replay."
 			}
-			if args == "" {
-				return "工具调用: " + name
-			}
-			return "工具调用: " + name + "\n参数: " + args
+			return "Historical tool call was already handled: " + name + ". Arguments omitted to prevent replay."
 		case "function_call_output":
 			out := responseInputText(v["output"])
 			if out == "" {
