@@ -135,7 +135,7 @@ jobs:
             CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" \
               go build -trimpath -ldflags="${ldflags}" -o "${workdir}/${binary}" ./cmd/server/
 
-            cp LICENSE README.md README_CN.md config.example.yaml "${workdir}/"
+            cp LICENSE README.md config.example.yaml "${workdir}/"
 
             if [ "${goos}" = "windows" ]; then
               (cd dist && zip -qr "${package}.zip" "${package}")
