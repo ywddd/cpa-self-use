@@ -128,22 +128,15 @@ func TestCodexExecutorExecuteStreamSurfacesTerminalStreamError(t *testing.T) {
 	assertCodexErrorCode(t, streamErr.Error(), "invalid_request_error", "context_too_large")
 }
 
-func TestCodexExecutorExecuteStreamRetriesTerminalContextErrorWithoutEncryptedReasoning(t *testing.T) {
+func TestCodexExecutorExecuteStreamSurfacesTerminalContextErrorAfterResponseCreated(t *testing.T) {
 	var calls int
-	var retryBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
 		calls++
 		w.Header().Set("Content-Type", "text/event-stream")
-		if calls == 1 {
-			_, _ = w.Write([]byte("event: response.created\n"))
-			_, _ = w.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_bad","model":"gpt-5.5"}}` + "\n\n"))
-			_, _ = w.Write([]byte("event: response.failed\n"))
-			_, _ = w.Write([]byte(`data: {"type":"response.failed","response":{"id":"resp_bad","status":"failed","error":{"code":"context_too_large","message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}` + "\n\n"))
-			return
-		}
-		retryBody = append([]byte(nil), body...)
-		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_ok","object":"response","created_at":1775555723,"status":"completed","model":"gpt-5.5","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}` + "\n\n"))
+		_, _ = w.Write([]byte("event: response.created\n"))
+		_, _ = w.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_bad","model":"gpt-5.5"}}` + "\n\n"))
+		_, _ = w.Write([]byte("event: response.failed\n"))
+		_, _ = w.Write([]byte(`data: {"type":"response.failed","response":{"id":"resp_bad","status":"failed","error":{"code":"context_too_large","message":"Your input exceeds the context window of this model. Please adjust your input and try again."}}}` + "\n\n"))
 	}))
 	defer server.Close()
 
@@ -170,37 +163,22 @@ func TestCodexExecutorExecuteStreamRetriesTerminalContextErrorWithoutEncryptedRe
 		t.Fatalf("ExecuteStream error: %v", err)
 	}
 
-	var completed []byte
-	var streamPayload bytes.Buffer
+	var streamErr error
 	for chunk := range result.Chunks {
 		if chunk.Err != nil {
-			t.Fatalf("stream chunk error: %v", chunk.Err)
-		}
-		streamPayload.Write(chunk.Payload)
-		payload := bytes.TrimSpace(chunk.Payload)
-		if !bytes.HasPrefix(payload, []byte("data:")) {
-			continue
-		}
-		data := bytes.TrimSpace(payload[5:])
-		if gjson.GetBytes(data, "type").String() == "response.completed" {
-			completed = append([]byte(nil), data...)
+			streamErr = chunk.Err
+			break
 		}
 	}
 
-	if calls != 2 {
-		t.Fatalf("upstream calls = %d, want 2", calls)
+	if calls != 1 {
+		t.Fatalf("upstream calls = %d, want 1", calls)
 	}
-	if strings.Contains(gjson.GetBytes(retryBody, "input").Raw, "encrypted_content") {
-		t.Fatalf("retry input should not contain encrypted_content: %s", string(retryBody))
+	if streamErr == nil {
+		t.Fatalf("expected terminal context error")
 	}
-	if strings.Contains(streamPayload.String(), "resp_bad") {
-		t.Fatalf("first failed attempt leaked downstream: %s", streamPayload.String())
-	}
-	if got := gjson.GetBytes(retryBody, "input.0.type").String(); got == "reasoning" {
-		t.Fatalf("retry input should remove encrypted reasoning items: %s", string(retryBody))
-	}
-	if got := gjson.GetBytes(completed, "response.output.0.content.0.text").String(); got != "ok" {
-		t.Fatalf("completed text = %q, want ok; completed=%s", got, string(completed))
+	if got := statusCodeFromTestError(t, streamErr); got != http.StatusBadRequest {
+		t.Fatalf("status code = %d, want %d; err=%v", got, http.StatusBadRequest, streamErr)
 	}
 }
 
