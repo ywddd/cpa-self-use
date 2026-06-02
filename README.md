@@ -189,13 +189,13 @@ CPAMC 代理:   http://<host>:18317/management.html
 本仓库的自用发布版本固定使用 `selfuse` 后缀，例如：
 
 ```text
-v7.1.35-selfuse.3
+v7.1.40-selfuse.20260602
 ```
 
 NAS 本地 Docker 镜像建议使用稳定标签：
 
 ```text
-cli-proxy-api:v7.1.35-selfuse
+cli-proxy-api:v7.1.40-selfuse.20260602
 ```
 
 这样日志、镜像、Release 和回滚点都能保持清晰。
@@ -220,6 +220,22 @@ config.yaml
 ```bash
 rg -n "github_pat_|refresh_token|access_token|id_token|sk-[A-Za-z0-9]|secret-key:" .
 ```
+
+## 近期上游同步
+
+当前自用分支已同步到上游 `v7.1.40` 后的 main，包含：
+
+- Codex Home auth refresh retry 修复。
+- Codex reasoning replay cache。
+- Gemini/Antigravity system role normalization。
+- 上游 README 新增的 [Panopticon](https://github.com/eltmon/panopticon-cli) 项目记录。
+
+### [Panopticon](https://github.com/eltmon/panopticon-cli)
+
+Multi-agent orchestration for AI coding assistants. Runs CLIProxyAPI as a local sidecar so its agents can drive GPT models through a ChatGPT subscription, pointing Claude Code at an Anthropic-compatible endpoint with no OpenAI API key required.
+
+> [!NOTE]
+> If you developed a project based on CLIProxyAPI, please open a PR to add it to this list.
 
 ## 上游
 
