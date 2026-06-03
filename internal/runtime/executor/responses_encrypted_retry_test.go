@@ -45,6 +45,27 @@ func TestShouldRetryResponsesWithoutEncryptedReasoningDoesNotRetryContextTooLarg
 	}
 }
 
+func TestShouldRetryResponsesWithoutEncryptedReasoningRetriesMissingStoredReasoningItem(t *testing.T) {
+	body := []byte(`{
+		"error":{
+			"message":"Item with id 'rs_00288ba3a95e1f77016a1f91ac88448191b18d9cb239c29752' not found. Items are not persisted when ` + "`store`" + ` is set to false. Try again with ` + "`store`" + ` set to true, or remove this item from your input.",
+			"type":"invalid_request_error",
+			"param":"input",
+			"code":null
+		}
+	}`)
+
+	if !shouldRetryResponsesWithoutEncryptedReasoning(http.StatusNotFound, body) {
+		t.Fatalf("missing stored reasoning item should trigger reasoning fallback")
+	}
+	if shouldRetryResponsesWithoutEncryptedReasoning(http.StatusForbidden, []byte(`Your request was blocked.`)) {
+		t.Fatalf("Cloudflare block should not trigger reasoning fallback")
+	}
+	if shouldRetryResponsesWithoutEncryptedReasoning(http.StatusNotFound, []byte(`{"error":{"message":"model not found"}}`)) {
+		t.Fatalf("unrelated 404 should not trigger reasoning fallback")
+	}
+}
+
 func TestStripInvalidEncryptedContentFromResponsesBody(t *testing.T) {
 	raw := []byte(`{
 		"model":"gpt-5.4",
@@ -95,6 +116,39 @@ func TestStripReasoningContextForRetryRemovesReasoningWithoutEncryptedContent(t 
 	}
 	if typ := gjson.GetBytes(got, "input.0.type").String(); typ != "message" {
 		t.Fatalf("message input should remain, got %q; body=%s", typ, got)
+	}
+}
+
+func TestStripReasoningContextForRetryRemovesMissingStoredReasoningItem(t *testing.T) {
+	raw := []byte(`{
+		"model":"gpt-5.5",
+		"input":[
+			{"type":"message","role":"user","content":"hello"},
+			{"type":"reasoning","id":"rs_00288ba3a95e1f77016a1f91ac88448191b18d9cb239c29752","summary":[]},
+			{"type":"function_call","call_id":"call_123","name":"lookup","arguments":"{}"}
+		]
+	}`)
+	errBody := []byte(`{
+		"error":{
+			"message":"Item with id 'rs_00288ba3a95e1f77016a1f91ac88448191b18d9cb239c29752' not found. Items are not persisted when ` + "`store`" + ` is set to false. Try again with ` + "`store`" + ` set to true, or remove this item from your input.",
+			"type":"invalid_request_error",
+			"param":"input",
+			"code":null
+		}
+	}`)
+
+	got, changed := stripReasoningContextForRetry(raw, errBody)
+	if !changed {
+		t.Fatalf("expected body to be changed")
+	}
+	if strings.Contains(string(got), `"type":"reasoning"`) || strings.Contains(string(got), "rs_00288") {
+		t.Fatalf("stale reasoning item should be removed: %s", got)
+	}
+	if typ := gjson.GetBytes(got, "input.0.type").String(); typ != "message" {
+		t.Fatalf("message input should remain first, got %q; body=%s", typ, got)
+	}
+	if typ := gjson.GetBytes(got, "input.1.type").String(); typ != "function_call" {
+		t.Fatalf("function call should remain, got %q; body=%s", typ, got)
 	}
 }
 

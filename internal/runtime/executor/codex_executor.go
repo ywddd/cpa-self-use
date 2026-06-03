@@ -766,12 +766,12 @@ func cacheCodexReasoningReplayFromCompleted(scope codexReasoningReplayScope, com
 	}
 }
 
-func clearCodexReasoningReplayOnInvalidSignature(scope codexReasoningReplayScope, statusCode int, body []byte) {
+func clearCodexReasoningReplayOnRejectedContext(scope codexReasoningReplayScope, statusCode int, body []byte) {
 	if !scope.valid() {
 		return
 	}
 	code, _, ok := codexStatusErrorClassification(statusCode, body)
-	if ok && code == "thinking_signature_invalid" {
+	if (ok && code == "thinking_signature_invalid") || isMissingStoredResponsesReasoningItemError(statusCode, body) {
 		internalcache.DeleteCodexReasoningReplayItem(scope.modelName, scope.sessionKey)
 	}
 }
@@ -898,7 +898,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		b, _ := io.ReadAll(httpResp.Body)
 		b = applyCodexIdentityConfuseResponsePayload(b, identityState)
-		clearCodexReasoningReplayOnInvalidSignature(replayScope, httpResp.StatusCode, b)
+		clearCodexReasoningReplayOnRejectedContext(replayScope, httpResp.StatusCode, b)
 		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
 		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, b) {
@@ -974,7 +974,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		eventType := gjson.GetBytes(eventData, "type").String()
 
 		if streamErr, terminalBody, ok := codexTerminalStreamErr(eventData); ok {
-			clearCodexReasoningReplayOnInvalidSignature(replayScope, streamErr.StatusCode(), terminalBody)
+			clearCodexReasoningReplayOnRejectedContext(replayScope, streamErr.StatusCode(), terminalBody)
 			err = streamErr
 			return resp, err
 		}
@@ -1287,7 +1287,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			return nil, readErr
 		}
 		data = applyCodexIdentityConfuseResponsePayload(data, identityState)
-		clearCodexReasoningReplayOnInvalidSignature(replayScope, httpResp.StatusCode, data)
+		clearCodexReasoningReplayOnRejectedContext(replayScope, httpResp.StatusCode, data)
 		helps.AppendAPIResponseChunk(ctx, e.cfg, data)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
 		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, data) {
@@ -1431,7 +1431,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			if bytes.HasPrefix(line, dataTag) {
 				data := bytes.TrimSpace(line[5:])
 				if streamErr, terminalBody, ok := codexTerminalStreamErr(data); ok {
-					clearCodexReasoningReplayOnInvalidSignature(replayScope, streamErr.StatusCode(), terminalBody)
+					clearCodexReasoningReplayOnRejectedContext(replayScope, streamErr.StatusCode(), terminalBody)
 					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 					reporter.PublishFailure(ctx, streamErr)
 					select {
@@ -1480,7 +1480,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				data := bytes.TrimSpace(line[5:])
 				eventType = gjson.GetBytes(data, "type").String()
 				if streamErr, terminalBody, ok := codexTerminalStreamErr(data); ok {
-					clearCodexReasoningReplayOnInvalidSignature(replayScope, streamErr.StatusCode(), terminalBody)
+					clearCodexReasoningReplayOnRejectedContext(replayScope, streamErr.StatusCode(), terminalBody)
 					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 					if downstreamStarted {
 						reporter.PublishFailure(ctx, streamErr)

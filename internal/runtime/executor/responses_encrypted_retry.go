@@ -40,7 +40,24 @@ func shouldRetryResponsesWithoutEncryptedReasoning(statusCode int, body []byte) 
 	if isInvalidResponsesEncryptedContentError(statusCode, body) {
 		return true
 	}
+	if isMissingStoredResponsesReasoningItemError(statusCode, body) {
+		return true
+	}
 	return false
+}
+
+func isMissingStoredResponsesReasoningItemError(statusCode int, body []byte) bool {
+	if statusCode != http.StatusNotFound {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "error.message").String()))
+	if message == "" {
+		message = strings.ToLower(strings.TrimSpace(string(body)))
+	}
+	return strings.Contains(message, "item with id") &&
+		strings.Contains(message, "not found") &&
+		strings.Contains(message, "store") &&
+		strings.Contains(message, "false")
 }
 
 func stripInvalidEncryptedContentFromResponsesBody(body []byte) ([]byte, bool) {
@@ -98,7 +115,7 @@ func stripReasoningContextForRetry(requestBody, errorBody []byte) ([]byte, bool)
 	if !isContextLength {
 		_, isContextLength = codexTerminalStreamContextLengthErr(errorBody)
 	}
-	if isContextLength {
+	if isContextLength || isMissingStoredResponsesReasoningItemError(http.StatusNotFound, errorBody) {
 		if stripped, changed := stripReasoningItemsFromResponsesBody(requestBody); changed {
 			return stripped, true
 		}

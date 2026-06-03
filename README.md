@@ -26,8 +26,9 @@
 效果：
 
 - 减少 `encrypted_content` 被上游拒绝导致的失败。
+- 当上游返回 `Item with id 'rs_...' not found` 且提示 `store=false` 时，移除 stale reasoning item 并重试一次。
 - 提升对复用 Responses reasoning 上下文客户端的兼容性。
-- 重试只针对明确的加密上下文拒绝场景。
+- 重试只针对明确的 reasoning 上下文拒绝或丢失场景。
 
 ### 3. reasoning / thinking 参数兼容
 
