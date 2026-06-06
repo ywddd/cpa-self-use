@@ -190,13 +190,13 @@ CPAMC 代理:   http://<host>:18317/management.html
 本仓库的自用发布版本固定使用 `selfuse` 后缀，例如：
 
 ```text
-v7.1.44-selfuse.20260604
+v7.1.46-selfuse.20260606
 ```
 
 NAS 本地 Docker 镜像建议使用稳定标签：
 
 ```text
-cli-proxy-api:v7.1.44-selfuse.20260604
+cli-proxy-api:v7.1.46-selfuse.20260606
 ```
 
 这样日志、镜像、Release 和回滚点都能保持清晰。
@@ -224,12 +224,14 @@ rg -n "github_pat_|refresh_token|access_token|id_token|sk-[A-Za-z0-9]|secret-key
 
 ## 近期上游同步
 
-当前自用分支已同步到上游 `v7.1.44` 后的 main，包含：
+当前自用分支已同步到上游 `v7.1.46` 后的 main，包含：
 
 - Codex Home auth refresh retry 修复。
 - Codex reasoning replay cache。
 - Gemini/Antigravity system role normalization。
 - Auth 错误事件发布和 Redis `errors` 频道。
+- file-backed request/response source 增强日志记录。
+- safemode 示例 API key 警告服务。
 - 上游 README 新增的 [Panopticon](https://github.com/eltmon/panopticon-cli) 项目记录。
 - 上游 README 新增的 [Tunnel Agent](https://github.com/Villoh/tunnel-agent) 项目记录。
 
