@@ -164,6 +164,9 @@ func (s *Service) syncPluginRuntimeConfig(ctx context.Context) bool {
 	if s.pluginHost != nil {
 		s.pluginHost.ApplyConfig(ctx, cfg)
 	}
+	if s.coreManager != nil {
+		s.coreManager.SetPluginScheduler(s.pluginHost)
+	}
 	s.registerPluginAuthParser()
 	if s.pluginHost == nil {
 		return false
@@ -1595,6 +1598,24 @@ func (s *Service) Shutdown(ctx context.Context) error {
 				if shutdownErr == nil {
 					shutdownErr = err
 				}
+			}
+		}
+
+		if s.pluginHost != nil {
+			sdktranslator.SetPluginHooks(nil)
+			sdkAuth.RegisterPluginAuthParser(nil)
+			if s.watcher != nil {
+				s.watcher.SetPluginAuthParser(nil)
+			}
+			s.pluginHost.ApplyConfig(ctx, &config.Config{})
+			s.pluginHost.RegisterModels(ctx, registry.GetGlobalRegistry())
+			if s.coreManager != nil {
+				s.pluginHost.RegisterExecutors(s.coreManager, registry.GetGlobalRegistry())
+			}
+			s.pluginHost.RegisterFrontendAuthProviders()
+			s.pluginHost.ShutdownAll()
+			if s.accessManager != nil {
+				s.accessManager.SetProviders(sdkaccess.RegisteredProviders())
 			}
 		}
 

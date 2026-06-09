@@ -1,27 +1,29 @@
-# CPA 自用版
+﻿# CPA 自用版
 
-这是基于 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的自用构建，重点服务于 Codex/Responses 稳定性、多账号运行、NAS/Docker 部署和日常 CPA 管理。
+这是基于 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的自用构建，重点服务 Codex/Responses 稳定性、多账号运行、NAS/Docker 部署和日常 CPA 管理。
 
-本仓库保留上游 MIT 许可证和上游项目署名。它不是上游官方发布版，而是一个面向实际部署的 selfuse 分支，包含一些兼容性修复和运维 UI 增强。
+当前同步基线：上游 `v7.1.58` / `origin/main`，自用版本建议标记为：
+
+```text
+v7.1.58-selfuse.20260609
+```
 
 ## 本构建改动
 
-### 1. Codex 上下文过长时交回客户端处理
+### 1. Codex 上下文过长直接交回客户端
 
-当 Codex 上游以 `context_too_large` / `context_length_exceeded` 结束流式响应时，本构建不再在 CPA 中间层自行压缩历史、生成 `history.txt`、移除 reasoning 后继续重试。
+当 Codex 上游以 `context_too_large` / `context_length_exceeded` 结束流式响应时，本构建不再在 CPA 中间层自行压缩历史、生成 `history.txt` 或移除 reasoning 后继续重试。
 
-当前处理方式：
+行为：
 
-- 保留上游式行为：上下文过长错误直接返回给客户端。
+- 保留上游式错误，直接返回给客户端处理。
 - 避免 CPA 把历史会话改写成新的请求后再次喂给模型。
-- 避免长会话中出现“重新读取工作区、重新确认状态、重新规划”的重复循环。
+- 降低长会话里重复读工作区、重复确认状态、重复规划的风险。
 - SSE 行破损修复仍然保留，二者是不同问题。
 
 ### 2. 加密 reasoning 上下文降级重试
 
-部分 Codex/Responses 请求会携带 `input[*].encrypted_content`。当上游拒绝这段加密 reasoning 上下文时，原始 CPA 可能直接失败。
-
-本构建会检测该类上游拒绝，移除无效的加密 reasoning 上下文，并重试一次。
+部分 Codex/Responses 请求会携带 `input[*].encrypted_content`。当上游明确拒绝这段加密 reasoning 上下文时，本构建会移除无效的加密 reasoning 上下文，并重试一次。
 
 效果：
 
@@ -30,21 +32,11 @@
 - 提升对复用 Responses reasoning 上下文客户端的兼容性。
 - 重试只针对明确的 reasoning 上下文拒绝或丢失场景。
 
-### 3. reasoning / thinking 参数兼容
-
-本构建增强了 thinking、reasoning effort 相关请求的兼容性。
-
-效果：
-
-- 客户端发送 reasoning 相关字段时更少直接失败。
-- 更好处理 Codex/Responses 风格 reasoning payload。
-- 当模型和客户端格式不一致时，行为更干净。
-
-### 4. Codex 响应头超时
+### 3. Codex 响应头超时
 
 Codex 上游请求有时会在返回响应头前卡住。此时 CPA 无法判断上游是在排队、停滞，还是 HTTP/2 连接卡死。
 
-本构建增加了只作用于响应头阶段的超时：
+本构建增加只作用于响应头阶段的超时：
 
 ```yaml
 codex-response-header-timeout-seconds: 180
@@ -69,7 +61,7 @@ codex-response-header-timeout-seconds: -1
 CPA_CODEX_RESPONSE_HEADER_TIMEOUT_SECONDS=180
 ```
 
-### 5. 流式 keepalive 和启动阶段重试
+### 4. 流式 keepalive 和启动阶段重试
 
 建议配合以下流式保活和启动阶段重试配置使用：
 
@@ -84,62 +76,30 @@ streaming:
 
 - 下游客户端等待时可以收到 keepalive 事件。
 - 首个流式 payload 前失败时可以安全重试。
+- 上下文过长的免费账号重试会被限制，避免反复落到不可用账号。
 - 降低慢上游启动导致的客户端误断开。
 
-### 6. auth 文件模型测试控制
+### 5. 管理 UI 增强
 
-管理 UI 增强了 auth 文件测试能力。
+管理页保留 selfuse 的运维增强：
 
-新增控制：
+- 可视化配置 `codex-response-header-timeout-seconds`。
+- auth 文件单独测试模型。
+- 当前页批量测试 auth 文件。
+- 每个账号显示测试结果和延迟。
 
-- 单个 auth 文件的 `Test Model` 按钮。
-- 当前页批量测试按钮。
-- 每个账号的测试结果徽标：
-  - 账号可用。
-  - 账号不可用。
+## 上游同步摘要
 
-测试接口会固定选中的 auth 文件发送一个最小模型调用，并返回成功、失败和延迟。
+本轮合并了 `v7.1.46` 之后到 `v7.1.58` 的上游更新，重点包括：
 
-### 7. Codex 超时的可视化配置项
+- pluginhost / scheduler / interceptor / jshandler 大幅增强。
+- 官方 uTLS、Codex 图片流式内存优化和响应错误翻译改进。
+- Gemini / Antigravity 签名、chunk、system instruction 等兼容性修复。
+- Docker 运行镜像加入 `ca-certificates`。
+- safemode 支持 `/management.html`。
+- 发布 workflow 调整为官方多平台构建和 Linux plugin/no-plugin 资产。
 
-管理页的可视化编辑器现在直接暴露：
-
-```yaml
-codex-response-header-timeout-seconds
-```
-
-这样常用的 Codex 响应头超时调优不需要切换到原始 YAML 编辑。
-
-### 8. 国内 Docker 构建调整
-
-本构建包含一些 Docker 相关调整，适合 Docker Hub 直连不稳定的环境。
-
-实用说明：
-
-- 镜像源可以切换为可访问的镜像站。
-- build / pull 命令可以走 HTTP 代理。
-- 可配合 HTTP 代理使用：
-
-```text
-http://<proxy-host>:<proxy-port>
-```
-
-### 9. CPA Manager 代理注入
-
-如果部署里使用独立 CPAMC 容器，可以通过轻量的 manager proxy 向 CPAMC 注入本地 UI 增强，而不必重新构建 CPAMC 前端。
-
-典型拓扑：
-
-```text
-浏览器
-  -> cpa-manager-proxy :18317
-  -> cpa-manager
-
-客户端 / API
-  -> cli-proxy-api :8317
-```
-
-该代理让 CPAMC 保持可用，同时加入本地自定义控制项。
+上游已经覆盖的通用修复尽量使用官方实现；上游尚未覆盖的 selfuse 运行补丁继续保留。
 
 ## 推荐配置
 
@@ -190,13 +150,13 @@ CPAMC 代理:   http://<host>:18317/management.html
 本仓库的自用发布版本固定使用 `selfuse` 后缀，例如：
 
 ```text
-v7.1.46-selfuse.20260606
+v7.1.58-selfuse.20260609
 ```
 
 NAS 本地 Docker 镜像建议使用稳定标签：
 
 ```text
-cli-proxy-api:v7.1.46-selfuse.20260606
+cli-proxy-api:v7.1.58-selfuse.20260609
 ```
 
 这样日志、镜像、Release 和回滚点都能保持清晰。
@@ -222,30 +182,6 @@ config.yaml
 rg -n "github_pat_|refresh_token|access_token|id_token|sk-[A-Za-z0-9]|secret-key:" .
 ```
 
-## 近期上游同步
-
-当前自用分支已同步到上游 `v7.1.46` 后的 main，包含：
-
-- Codex Home auth refresh retry 修复。
-- Codex reasoning replay cache。
-- Gemini/Antigravity system role normalization。
-- Auth 错误事件发布和 Redis `errors` 频道。
-- file-backed request/response source 增强日志记录。
-- safemode 示例 API key 警告服务。
-- 上游 README 新增的 [Panopticon](https://github.com/eltmon/panopticon-cli) 项目记录。
-- 上游 README 新增的 [Tunnel Agent](https://github.com/Villoh/tunnel-agent) 项目记录。
-
-### [Panopticon](https://github.com/eltmon/panopticon-cli)
-
-Multi-agent orchestration for AI coding assistants. Runs CLIProxyAPI as a local sidecar so its agents can drive GPT models through a ChatGPT subscription, pointing Claude Code at an Anthropic-compatible endpoint with no OpenAI API key required.
-
-### [Tunnel Agent](https://github.com/Villoh/tunnel-agent)
-
-Windows desktop UI that manages CLIProxyAPI and Perplexity WebUI Scraper from a single interface, inspired by Quotio and VibeProxy. Connect OAuth providers, custom API keys, and Perplexity session accounts, then point any coding agent at the local endpoint.
-
-> [!NOTE]
-> If you developed a project based on CLIProxyAPI, please open a PR to add it to this list.
-
 ## 上游
 
 本仓库基于：
@@ -254,16 +190,3 @@ Windows desktop UI that manages CLIProxyAPI and Perplexity WebUI Scraper from a 
 - 许可证：MIT，见 [LICENSE](LICENSE)
 
 通用的小修复应尽量单独提交给上游。本仓库保留的本地运维改动，多数与 selfuse 部署和管理需求有关。
-
-## 当前定位
-
-这是自用构建，优先服务实际运行：
-
-- Codex / Responses 兼容性。
-- 多账号重试和账号重选。
-- 可观察的账号测试。
-- NAS / Docker 部署。
-- 管理 UI 便利性。
-- 历史上下文降级重试时避免旧命令和旧要求被重放。
-
-除当前部署需求外，不额外承诺兼容性。

@@ -1,13 +1,15 @@
-ARG GO_IMAGE=docker.1ms.run/library/golang:1.26-alpine
-ARG ALPINE_IMAGE=golang:1.26-alpine
+﻿ARG GO_IMAGE=docker.1ms.run/library/golang:1.26-bookworm
+ARG RUNTIME_IMAGE=debian:bookworm
 ARG GOPROXY=https://goproxy.cn,direct
-ARG ALPINE_REPO=https://mirrors.aliyun.com/alpine
+ARG DEBIAN_FRONTEND=noninteractive
 
 FROM ${GO_IMAGE} AS builder
 
 WORKDIR /app
 ARG GOPROXY
 ENV GOPROXY=${GOPROXY}
+
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
 
@@ -19,12 +21,12 @@ ARG VERSION=dev
 ARG COMMIT=none
 ARG BUILD_DATE=unknown
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./CLIProxyAPI ./cmd/server/
+RUN CGO_ENABLED=1 GOOS=linux go build -buildvcs=false -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.Commit=${COMMIT}' -X 'main.BuildDate=${BUILD_DATE}'" -o ./CLIProxyAPI ./cmd/server/
 
-FROM ${ALPINE_IMAGE}
+FROM ${RUNTIME_IMAGE}
 
-ARG ALPINE_REPO
-RUN sed -i "s|https://dl-cdn.alpinelinux.org/alpine|${ALPINE_REPO}|g" /etc/apk/repositories && apk add --no-cache tzdata
+ARG DEBIAN_FRONTEND
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata ca-certificates && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir /CLIProxyAPI
 
