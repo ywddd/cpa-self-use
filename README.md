@@ -2,10 +2,10 @@
 
 这是基于 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的自用构建，重点服务 Codex/Responses 稳定性、多账号运行、NAS/Docker 部署和日常 CPA 管理。
 
-当前同步基线：上游 `v7.1.58` / `origin/main`，自用版本建议标记为：
+当前同步基线：上游 `v7.1.74` / `origin/main`，自用版本建议标记为：
 
 ```text
-v7.1.58-selfuse.20260609
+v7.1.74-selfuse.20260613
 ```
 
 ## 本构建改动
@@ -90,14 +90,15 @@ streaming:
 
 ## 上游同步摘要
 
-本轮合并了 `v7.1.46` 之后到 `v7.1.58` 的上游更新，重点包括：
+本轮合并了 `v7.1.58` 之后到 `v7.1.74` 的上游更新，重点包括：
 
-- pluginhost / scheduler / interceptor / jshandler 大幅增强。
-- 官方 uTLS、Codex 图片流式内存优化和响应错误翻译改进。
-- Gemini / Antigravity 签名、chunk、system instruction 等兼容性修复。
-- Docker 运行镜像加入 `ca-certificates`。
-- safemode 支持 `/management.html`。
-- 发布 workflow 调整为官方多平台构建和 Linux plugin/no-plugin 资产。
+- 插件商店支持：插件 registry、GitHub release 下载、安装、更新、卸载和配置保留。
+- 管理 API 增强：插件资源、插件配置读取、latest release 版本解析和 `X-CPA-SUPPORT-PLUGIN` 能力头。
+- Antigravity 增强：Claude WebSearch 转原生 `googleSearch`、grounding URL 提取和相关转换测试。
+- HTML / JSON sanitize 工具接入插件和管理 API，降低插件返回内容注入风险。
+- 翻译器和 usage 聚合增强：stream response transform、cache input/output token 细分、finish_reason 修正。
+- 模型注册和日志修复：新增 `Claude Fable 5`，收紧 Codex backend request ID 记录。
+- release workflow 继续增强，生成 changelog 和更完整的 release notes。
 
 上游已经覆盖的通用修复尽量使用官方实现；上游尚未覆盖的 selfuse 运行补丁继续保留。
 
@@ -150,13 +151,13 @@ CPAMC 代理:   http://<host>:18317/management.html
 本仓库的自用发布版本固定使用 `selfuse` 后缀，例如：
 
 ```text
-v7.1.58-selfuse.20260609
+v7.1.74-selfuse.20260613
 ```
 
 NAS 本地 Docker 镜像建议使用稳定标签：
 
 ```text
-cli-proxy-api:v7.1.58-selfuse.20260609
+cli-proxy-api:v7.1.74-selfuse.20260613
 ```
 
 这样日志、镜像、Release 和回滚点都能保持清晰。
