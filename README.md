@@ -5,7 +5,7 @@
 当前同步基线：上游 `v7.1.76` / `origin/main`，自用版本建议标记为：
 
 ```text
-v7.1.76-selfuse.20260614-jsonrepair
+v7.1.76-selfuse.20260614-jsonrepair-route
 ```
 
 ## 本构建改动
@@ -90,9 +90,10 @@ streaming:
 
 ### 6. OpenAI-compatible 上游 JSON 预检
 
-Kimi K2.7 Code 等走 `openai-compatibility` 的模型在请求体包含未转义反斜杠时，上游可能返回 Cloudflare 侧的 `invalid escaped character in string`。本构建会在发往 OpenAI-compatible 上游前对最终 JSON 做兼容处理：
+Kimi K2.7 Code 等走 `openai-compatibility` 的模型在请求体包含未转义反斜杠时，上游可能返回 Cloudflare 侧的 `invalid escaped character in string`。本构建会在入口路由前和发往 OpenAI-compatible 上游前都对 JSON 做兼容处理：
 
 - 对 `C:\Users\...` 这类常见未转义 Windows 路径，自动修复字符串里的非法反斜杠转义后继续请求。
+- `/v1/chat/completions` 和 `/v1/completions` 会先修复/校验请求体，再读取 `model` 做 provider 路由，避免可修复请求被误判成 `unknown provider` 并快速返回 `502`。
 - 对缺引号、结构损坏等不可恢复的非法 JSON，仍然在 CPA 本地返回 `400`，错误信息带有具体解析位置。
 - 不再把不可恢复的破损请求发给 Cloudflare/OpenAI-compatible 上游。
 - 流式和非流式 chat completion 路径都覆盖。
@@ -158,13 +159,13 @@ CPAMC 代理:   http://<host>:18317/management.html
 本仓库的自用发布版本固定使用 `selfuse` 后缀，例如：
 
 ```text
-v7.1.76-selfuse.20260614-jsonrepair
+v7.1.76-selfuse.20260614-jsonrepair-route
 ```
 
 NAS 本地 Docker 镜像建议使用稳定标签：
 
 ```text
-cli-proxy-api:v7.1.76-selfuse.20260614-jsonrepair
+cli-proxy-api:v7.1.76-selfuse.20260614-jsonrepair-route
 ```
 
 这样日志、镜像、Release 和回滚点都能保持清晰。
