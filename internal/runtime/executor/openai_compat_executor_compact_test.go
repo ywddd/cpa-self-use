@@ -106,11 +106,13 @@ func TestOpenAICompatExecutorPayloadOverrideWinsOverThinkingSuffix(t *testing.T)
 	}
 }
 
-func TestOpenAICompatExecutorRejectsInvalidJSONBeforeUpstream(t *testing.T) {
-	called := false
+func TestOpenAICompatExecutorRepairsInvalidJSONStringEscapesBeforeUpstream(t *testing.T) {
+	var gotBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		t.Fatal("upstream should not be called for invalid JSON")
+		body, _ := io.ReadAll(r.Body)
+		gotBody = body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
 	}))
 	defer server.Close()
 
@@ -126,25 +128,25 @@ func TestOpenAICompatExecutorRejectsInvalidJSONBeforeUpstream(t *testing.T) {
 		SourceFormat: sdktranslator.FromString("openai"),
 		Stream:       false,
 	})
-	if err == nil {
-		t.Fatal("Execute error = nil, want invalid JSON error")
+	if err != nil {
+		t.Fatalf("Execute error: %v", err)
 	}
-	if called {
-		t.Fatal("upstream was called for invalid JSON")
+	if !gjson.ValidBytes(gotBody) {
+		t.Fatalf("upstream body is invalid JSON: %s", string(gotBody))
 	}
-	if status, ok := err.(interface{ StatusCode() int }); !ok || status.StatusCode() != http.StatusBadRequest {
-		t.Fatalf("error status = %v, want %d", err, http.StatusBadRequest)
-	}
-	if !strings.Contains(err.Error(), "invalid chat completion JSON before upstream request") || !strings.Contains(err.Error(), "invalid character") {
-		t.Fatalf("error = %v, want invalid JSON parse detail", err)
+	if got := gjson.GetBytes(gotBody, "messages.0.content").String(); got != `path C:\Users\bad` {
+		t.Fatalf("content = %q, want repaired Windows path; body=%s", got, string(gotBody))
 	}
 }
 
-func TestOpenAICompatExecutorStreamRejectsInvalidJSONBeforeUpstream(t *testing.T) {
-	called := false
+func TestOpenAICompatExecutorStreamRepairsInvalidJSONStringEscapesBeforeUpstream(t *testing.T) {
+	var gotBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		t.Fatal("upstream should not be called for invalid JSON")
+		body, _ := io.ReadAll(r.Body)
+		gotBody = body
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl_1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":null}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
 	}))
 	defer server.Close()
 
@@ -153,23 +155,59 @@ func TestOpenAICompatExecutorStreamRejectsInvalidJSONBeforeUpstream(t *testing.T
 		"base_url": server.URL + "/v1",
 		"api_key":  "test",
 	}}
-	_, err := executor.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+	streamResult, err := executor.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
 		Model:   "kimi-k2.7-code",
 		Payload: []byte(`{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"path C:\Users\bad"}],"stream":true}`),
 	}, cliproxyexecutor.Options{
 		SourceFormat: sdktranslator.FromString("openai"),
 		Stream:       true,
 	})
+	if err != nil {
+		t.Fatalf("ExecuteStream error: %v", err)
+	}
+	for chunk := range streamResult.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("stream chunk error: %v", chunk.Err)
+		}
+	}
+	if !gjson.ValidBytes(gotBody) {
+		t.Fatalf("upstream stream body is invalid JSON: %s", string(gotBody))
+	}
+	if got := gjson.GetBytes(gotBody, "messages.0.content").String(); got != `path C:\Users\bad` {
+		t.Fatalf("content = %q, want repaired Windows path; body=%s", got, string(gotBody))
+	}
+}
+
+func TestOpenAICompatExecutorRejectsUnrecoverableInvalidJSONBeforeUpstream(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		t.Fatal("upstream should not be called for unrecoverable invalid JSON")
+	}))
+	defer server.Close()
+
+	executor := NewOpenAICompatExecutor("openai-compatibility", &config.Config{})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"base_url": server.URL + "/v1",
+		"api_key":  "test",
+	}}
+	_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "kimi-k2.7-code",
+		Payload: []byte(`{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"missing quote}]}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FromString("openai"),
+		Stream:       false,
+	})
 	if err == nil {
-		t.Fatal("ExecuteStream error = nil, want invalid JSON error")
+		t.Fatal("Execute error = nil, want invalid JSON error")
 	}
 	if called {
-		t.Fatal("upstream was called for invalid JSON")
+		t.Fatal("upstream was called for unrecoverable invalid JSON")
 	}
 	if status, ok := err.(interface{ StatusCode() int }); !ok || status.StatusCode() != http.StatusBadRequest {
 		t.Fatalf("error status = %v, want %d", err, http.StatusBadRequest)
 	}
-	if !strings.Contains(err.Error(), "invalid chat completion stream JSON before upstream request") || !strings.Contains(err.Error(), "invalid character") {
+	if !strings.Contains(err.Error(), "invalid chat completion JSON before upstream request") {
 		t.Fatalf("error = %v, want invalid JSON parse detail", err)
 	}
 }
