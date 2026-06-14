@@ -130,6 +130,11 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 	}
 	reporter.SetTranslatedReasoningEffort(translated, to.String())
 
+	if errValidate := validateOpenAICompatJSONPayload("chat completion", translated); errValidate != nil {
+		err = errValidate
+		return resp, err
+	}
+
 	url := strings.TrimSuffix(baseURL, "/") + endpoint
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
 	if err != nil {
@@ -380,6 +385,11 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 	// are captured even when the upstream is an OpenAI-compatible provider.
 	translated, _ = sjson.SetBytes(translated, "stream_options.include_usage", true)
 	reporter.SetTranslatedReasoningEffort(translated, to.String())
+
+	if errValidate := validateOpenAICompatJSONPayload("chat completion stream", translated); errValidate != nil {
+		err = errValidate
+		return nil, err
+	}
 
 	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
@@ -664,6 +674,17 @@ func (e *OpenAICompatExecutor) Refresh(ctx context.Context, auth *cliproxyauth.A
 		return refreshed, err
 	}
 	return auth, nil
+}
+
+func validateOpenAICompatJSONPayload(kind string, payload []byte) error {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return statusErr{code: http.StatusBadRequest, msg: "openai compat executor: " + kind + " payload is empty"}
+	}
+	var decoded any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return statusErr{code: http.StatusBadRequest, msg: "openai compat executor: invalid " + kind + " JSON before upstream request: " + err.Error()}
+	}
+	return nil
 }
 
 func openAICompatImageEndpointPath(opts cliproxyexecutor.Options) string {

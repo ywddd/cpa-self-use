@@ -106,6 +106,74 @@ func TestOpenAICompatExecutorPayloadOverrideWinsOverThinkingSuffix(t *testing.T)
 	}
 }
 
+func TestOpenAICompatExecutorRejectsInvalidJSONBeforeUpstream(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		t.Fatal("upstream should not be called for invalid JSON")
+	}))
+	defer server.Close()
+
+	executor := NewOpenAICompatExecutor("openai-compatibility", &config.Config{})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"base_url": server.URL + "/v1",
+		"api_key":  "test",
+	}}
+	_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "kimi-k2.7-code",
+		Payload: []byte(`{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"path C:\Users\bad"}]}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FromString("openai"),
+		Stream:       false,
+	})
+	if err == nil {
+		t.Fatal("Execute error = nil, want invalid JSON error")
+	}
+	if called {
+		t.Fatal("upstream was called for invalid JSON")
+	}
+	if status, ok := err.(interface{ StatusCode() int }); !ok || status.StatusCode() != http.StatusBadRequest {
+		t.Fatalf("error status = %v, want %d", err, http.StatusBadRequest)
+	}
+	if !strings.Contains(err.Error(), "invalid chat completion JSON before upstream request") || !strings.Contains(err.Error(), "invalid character") {
+		t.Fatalf("error = %v, want invalid JSON parse detail", err)
+	}
+}
+
+func TestOpenAICompatExecutorStreamRejectsInvalidJSONBeforeUpstream(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		t.Fatal("upstream should not be called for invalid JSON")
+	}))
+	defer server.Close()
+
+	executor := NewOpenAICompatExecutor("openai-compatibility", &config.Config{})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"base_url": server.URL + "/v1",
+		"api_key":  "test",
+	}}
+	_, err := executor.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "kimi-k2.7-code",
+		Payload: []byte(`{"model":"kimi-k2.7-code","messages":[{"role":"user","content":"path C:\Users\bad"}],"stream":true}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FromString("openai"),
+		Stream:       true,
+	})
+	if err == nil {
+		t.Fatal("ExecuteStream error = nil, want invalid JSON error")
+	}
+	if called {
+		t.Fatal("upstream was called for invalid JSON")
+	}
+	if status, ok := err.(interface{ StatusCode() int }); !ok || status.StatusCode() != http.StatusBadRequest {
+		t.Fatalf("error status = %v, want %d", err, http.StatusBadRequest)
+	}
+	if !strings.Contains(err.Error(), "invalid chat completion stream JSON before upstream request") || !strings.Contains(err.Error(), "invalid character") {
+		t.Fatalf("error = %v, want invalid JSON parse detail", err)
+	}
+}
+
 func TestOpenAICompatExecutorImagesGenerationsPassthrough(t *testing.T) {
 	var gotPath string
 	var gotBody []byte

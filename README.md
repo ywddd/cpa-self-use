@@ -5,7 +5,7 @@
 当前同步基线：上游 `v7.1.76` / `origin/main`，自用版本建议标记为：
 
 ```text
-v7.1.76-selfuse.20260614
+v7.1.76-selfuse.20260614-jsoncheck
 ```
 
 ## 本构建改动
@@ -88,6 +88,14 @@ streaming:
 - 当前页批量测试 auth 文件。
 - 每个账号显示测试结果和延迟。
 
+### 6. OpenAI-compatible 上游 JSON 预检
+
+Kimi K2.7 Code 等走 `openai-compatibility` 的模型在请求体包含未转义字符时，上游可能返回 Cloudflare 侧的 `invalid escaped character in string`。本构建会在发往 OpenAI-compatible 上游前校验最终 JSON：
+
+- 非法 JSON 直接在 CPA 本地返回 `400`，错误信息带有具体解析位置。
+- 不再把明显破损的请求发给 Cloudflare/OpenAI-compatible 上游。
+- 流式和非流式 chat completion 路径都覆盖。
+
 ## 上游同步摘要
 
 本轮合并了 `v7.1.74` 之后到 `v7.1.76` 的上游更新，重点包括：
@@ -149,13 +157,13 @@ CPAMC 代理:   http://<host>:18317/management.html
 本仓库的自用发布版本固定使用 `selfuse` 后缀，例如：
 
 ```text
-v7.1.76-selfuse.20260614
+v7.1.76-selfuse.20260614-jsoncheck
 ```
 
 NAS 本地 Docker 镜像建议使用稳定标签：
 
 ```text
-cli-proxy-api:v7.1.76-selfuse.20260614
+cli-proxy-api:v7.1.76-selfuse.20260614-jsoncheck
 ```
 
 这样日志、镜像、Release 和回滚点都能保持清晰。
