@@ -1,80 +1,80 @@
-# CPA 自用版
+﻿# CPA 鑷敤鐗?
 
-这是基于 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的自用构建，重点服务 Codex/Responses 稳定性、多账号运行、NAS/Docker 部署和日常 CPA 管理。
+杩欐槸鍩轰簬 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 鐨勮嚜鐢ㄦ瀯寤猴紝閲嶇偣鏈嶅姟 Codex/Responses 绋冲畾鎬с€佸璐﹀彿杩愯銆丯AS/Docker 閮ㄧ讲鍜屾棩甯?CPA 绠＄悊銆?
 
-当前同步基线：上游 `v7.2.12`。自用版本建议标记为：
+褰撳墠鍚屾鍩虹嚎锛氫笂娓?`v7.2.20`銆傝嚜鐢ㄧ増鏈缓璁爣璁颁负锛?
 
 ```text
-v7.2.12-selfuse.20260617
+v7.2.20-selfuse.20260617
 ```
 
-## 本构建保留的改动
+## 鏈瀯寤轰繚鐣欑殑鏀瑰姩
 
-### 1. Codex 上下文过长直接交回客户端
+### 1. Codex 涓婁笅鏂囪繃闀跨洿鎺ヤ氦鍥炲鎴风
 
-当 Codex 上游以 `context_too_large` / `context_length_exceeded` 结束流式响应时，本构建不在 CPA 中间层自行压缩历史、生成 `history.txt` 或移除 reasoning 后继续重试。
+褰?Codex 涓婃父浠?`context_too_large` / `context_length_exceeded` 缁撴潫娴佸紡鍝嶅簲鏃讹紝鏈瀯寤轰笉鍦?CPA 涓棿灞傝嚜琛屽帇缂╁巻鍙层€佺敓鎴?`history.txt` 鎴栫Щ闄?reasoning 鍚庣户缁噸璇曘€?
 
-这样可以避免 CPA 把历史会话改写成新的请求后再次喂给模型，降低长会话里重复读工作区、重复确认状态、重复规划的风险。
+杩欐牱鍙互閬垮厤 CPA 鎶婂巻鍙蹭細璇濇敼鍐欐垚鏂扮殑璇锋眰鍚庡啀娆″杺缁欐ā鍨嬶紝闄嶄綆闀夸細璇濋噷閲嶅璇诲伐浣滃尯銆侀噸澶嶇‘璁ょ姸鎬併€侀噸澶嶈鍒掔殑椋庨櫓銆?
 
-### 2. 加密 reasoning 上下文降级重试
+### 2. 鍔犲瘑 reasoning 涓婁笅鏂囬檷绾ч噸璇?
 
-部分 Codex/Responses 请求会携带 `input[*].encrypted_content`。当上游明确拒绝这段加密 reasoning 上下文时，本构建会移除无效的加密 reasoning 上下文，并重试一次。
+閮ㄥ垎 Codex/Responses 璇锋眰浼氭惡甯?`input[*].encrypted_content`銆傚綋涓婃父鏄庣‘鎷掔粷杩欐鍔犲瘑 reasoning 涓婁笅鏂囨椂锛屾湰鏋勫缓浼氱Щ闄ゆ棤鏁堢殑鍔犲瘑 reasoning 涓婁笅鏂囷紝骞堕噸璇曚竴娆°€?
 
-同时，当上游返回 `Item with id 'rs_...' not found` 且提示 `store=false` 时，也会移除 stale reasoning item 并重试一次。
+鍚屾椂锛屽綋涓婃父杩斿洖 `Item with id 'rs_...' not found` 涓旀彁绀?`store=false` 鏃讹紝涔熶細绉婚櫎 stale reasoning item 骞堕噸璇曚竴娆°€?
 
-### 3. Codex 响应头超时
+### 3. Codex 鍝嶅簲澶磋秴鏃?
 
-Codex 上游请求有时会在返回响应头前卡住。本构建增加只作用于响应头阶段的超时：
+Codex 涓婃父璇锋眰鏈夋椂浼氬湪杩斿洖鍝嶅簲澶村墠鍗′綇銆傛湰鏋勫缓澧炲姞鍙綔鐢ㄤ簬鍝嶅簲澶撮樁娈电殑瓒呮椂锛?
 
 ```yaml
 codex-response-header-timeout-seconds: 180
 ```
 
-响应头到达后的流式正文不受该超时限制。设置为负数可关闭：
+鍝嶅簲澶村埌杈惧悗鐨勬祦寮忔鏂囦笉鍙楄瓒呮椂闄愬埗銆傝缃负璐熸暟鍙叧闂細
 
 ```yaml
 codex-response-header-timeout-seconds: -1
 ```
 
-也支持环境变量覆盖：
+涔熸敮鎸佺幆澧冨彉閲忚鐩栵細
 
 ```bash
 CPA_CODEX_RESPONSE_HEADER_TIMEOUT_SECONDS=180
 ```
 
-### 4. OpenAI-compatible JSON 预检
+### 4. OpenAI-compatible JSON 棰勬
 
-Kimi K2.7 Code 等走 `openai-compatibility` 的模型在请求体包含未转义反斜杠时，上游可能返回 Cloudflare 侧的 `invalid escaped character in string`。
+Kimi K2.7 Code 绛夎蛋 `openai-compatibility` 鐨勬ā鍨嬪湪璇锋眰浣撳寘鍚湭杞箟鍙嶆枩鏉犳椂锛屼笂娓稿彲鑳借繑鍥?Cloudflare 渚х殑 `invalid escaped character in string`銆?
 
-本构建会在入口路由前和发往 OpenAI-compatible 上游前对 JSON 做兼容处理：
+鏈瀯寤轰細鍦ㄥ叆鍙ｈ矾鐢卞墠鍜屽彂寰€ OpenAI-compatible 涓婃父鍓嶅 JSON 鍋氬吋瀹瑰鐞嗭細
 
-- 对 `C:\Users\...` 这类常见未转义 Windows 路径，自动修复字符串里的非法反斜杠转义后继续请求。
-- `/v1/chat/completions` 和 `/v1/completions` 会先修复/校验请求体，再读取 `model` 做 provider 路由。
-- 对缺引号、结构损坏等不可恢复的非法 JSON，仍然在 CPA 本地返回 `400`。
+- 瀵?`C:\Users\...` 杩欑被甯歌鏈浆涔?Windows 璺緞锛岃嚜鍔ㄤ慨澶嶅瓧绗︿覆閲岀殑闈炴硶鍙嶆枩鏉犺浆涔夊悗缁х画璇锋眰銆?
+- `/v1/chat/completions` 鍜?`/v1/completions` 浼氬厛淇/鏍￠獙璇锋眰浣擄紝鍐嶈鍙?`model` 鍋?provider 璺敱銆?
+- 瀵圭己寮曞彿銆佺粨鏋勬崯鍧忕瓑涓嶅彲鎭㈠鐨勯潪娉?JSON锛屼粛鐒跺湪 CPA 鏈湴杩斿洖 `400`銆?
 
-### 5. 管理 UI 增强
+### 5. 绠＄悊 UI 澧炲己
 
-管理页保留 selfuse 的运维增强：
+绠＄悊椤典繚鐣?selfuse 鐨勮繍缁村寮猴細
 
-- 可视化配置 `codex-response-header-timeout-seconds`。
-- auth 文件单独测试模型。
-- 当前页批量测试 auth 文件。
-- 每个账号显示测试结果和延迟。
+- 鍙鍖栭厤缃?`codex-response-header-timeout-seconds`銆?
+- auth 鏂囦欢鍗曠嫭娴嬭瘯妯″瀷銆?
+- 褰撳墠椤垫壒閲忔祴璇?auth 鏂囦欢銆?
+- 姣忎釜璐﹀彿鏄剧ず娴嬭瘯缁撴灉鍜屽欢杩熴€?
 
-## 上游同步摘要
+## 涓婃父鍚屾鎽樿
 
-本轮从 `v7.2.5` 合并到 `v7.2.12`，重点包括：
+鏈疆浠?`v7.2.16` 鍚堝苟鍒?`v7.2.20`锛岄噸鐐瑰寘鎷細
 
-- 管理日志 API 增加 cursor/tail/轮转续读能力。
-- 插件删除、配置修改、生命周期和 stream callback 的异步 reload/race 修复。
-- 新增插件 ModelRouter，可在鉴权前做模型路由。
-- Claude/Anthropic 兼容增强，包括 web search tool domain 清洗、tool_result 规范化、Codex web_search_call 流式转换修复、namespace/function call 映射增强。
-- 视频输入增强，增加 `video_url` 提取和校验。
-- 插件默认 `Enabled` 行为改为 `false`，已有插件配置需要显式启用。
+- 绠＄悊鏃ュ織 API 澧炲姞 cursor/tail/杞浆缁鑳藉姏銆?
+- 鎻掍欢鍒犻櫎銆侀厤缃慨鏀广€佺敓鍛藉懆鏈熷拰 stream callback 鐨勫紓姝?reload/race 淇銆?
+- 鏂板鎻掍欢 ModelRouter锛屽彲鍦ㄩ壌鏉冨墠鍋氭ā鍨嬭矾鐢便€?
+- Claude/Anthropic 鍏煎澧炲己锛屽寘鎷?web search tool domain 娓呮礂銆乼ool_result 瑙勮寖鍖栥€丆odex web_search_call 娴佸紡杞崲淇銆乶amespace/function call 鏄犲皠澧炲己銆?
+- 瑙嗛杈撳叆澧炲己锛屽鍔?`video_url` 鎻愬彇鍜屾牎楠屻€?
+- 鎻掍欢榛樿 `Enabled` 琛屼负鏀逛负 `false`锛屽凡鏈夋彃浠堕厤缃渶瑕佹樉寮忓惎鐢ㄣ€?
 
-上游已经覆盖的通用修复尽量使用官方实现；上游尚未覆盖的 selfuse 运行补丁继续保留。
+涓婃父宸茬粡瑕嗙洊鐨勯€氱敤淇灏介噺浣跨敤瀹樻柟瀹炵幇锛涗笂娓稿皻鏈鐩栫殑 selfuse 杩愯琛ヤ竵缁х画淇濈暀銆?
 
-## 推荐配置
+## 鎺ㄨ崘閰嶇疆
 
 ```yaml
 request-retry: 3
@@ -92,38 +92,38 @@ streaming:
   bootstrap-retries: 1
 ```
 
-## Docker Compose 使用
+## Docker Compose 浣跨敤
 
-构建并启动：
+鏋勫缓骞跺惎鍔細
 
 ```bash
 docker compose up -d --build
 ```
 
-管理页和 API 端口取决于你的 compose 文件。参考部署中：
+绠＄悊椤靛拰 API 绔彛鍙栧喅浜庝綘鐨?compose 鏂囦欢銆傚弬鑰冮儴缃蹭腑锛?
 
 ```text
 CPA API:    http://<host>:8317
 CPA Plus:   http://<host>:18317/management.html
 ```
 
-## 版本规则
+## 鐗堟湰瑙勫垯
 
-本仓库的自用发布版本固定使用 `selfuse` 后缀，例如：
-
-```text
-v7.2.12-selfuse.20260617
-```
-
-NAS 本地 Docker 镜像建议使用稳定标签：
+鏈粨搴撶殑鑷敤鍙戝竷鐗堟湰鍥哄畾浣跨敤 `selfuse` 鍚庣紑锛屼緥濡傦細
 
 ```text
-cli-proxy-api:v7.2.12-selfuse.20260617
+v7.2.20-selfuse.20260617
 ```
 
-## 安全说明
+NAS 鏈湴 Docker 闀滃儚寤鸿浣跨敤绋冲畾鏍囩锛?
 
-不要提交真实 auth 文件、refresh token、access token、id token、management key 或 API key。推荐作为运行态文件保留在仓库外或 `.gitignore` 中：
+```text
+cli-proxy-api:v7.2.20-selfuse.20260617
+```
+
+## 瀹夊叏璇存槑
+
+涓嶈鎻愪氦鐪熷疄 auth 鏂囦欢銆乺efresh token銆乤ccess token銆乮d token銆乵anagement key 鎴?API key銆傛帹鑽愪綔涓鸿繍琛屾€佹枃浠朵繚鐣欏湪浠撳簱澶栨垨 `.gitignore` 涓細
 
 ```text
 auth-dir/
@@ -134,7 +134,7 @@ logs/
 config.yaml
 ```
 
-公开 fork 或发布前，建议扫描敏感信息：
+鍏紑 fork 鎴栧彂甯冨墠锛屽缓璁壂鎻忔晱鎰熶俊鎭細
 
 ```bash
 rg -n "github_pat_|refresh_token|access_token|id_token|sk-[A-Za-z0-9]|secret-key:" .
