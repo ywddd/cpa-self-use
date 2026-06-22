@@ -1,6 +1,7 @@
-﻿package synthesizer
+package synthesizer
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 
 func TestNewFileSynthesizer(t *testing.T) {
@@ -161,89 +163,103 @@ func TestFileSynthesizer_Synthesize_IgnoresGeminiProviderFile(t *testing.T) {
 	}
 }
 
-func TestFileSynthesizer_Synthesize_CodexAccountFields(t *testing.T) {
+func TestSynthesizeAuthFileExpandsPluginMultiAuths(t *testing.T) {
 	tempDir := t.TempDir()
+	fullPath := filepath.Join(tempDir, "geminicli.json")
+	raw := []byte(`{"type":"gemini-cli","excluded_models":["model-a"],"headers":{"X-Test":"value"}}`)
 
-	authData := map[string]any{
-		"type":       "codex",
-		"email":      "codex@example.com",
-		"account_id": "acct-123",
-		"plan_type":  "plus",
-	}
-	data, _ := json.Marshal(authData)
-	if err := os.WriteFile(filepath.Join(tempDir, "codex-auth.json"), data, 0644); err != nil {
-		t.Fatalf("failed to write auth file: %v", err)
-	}
-
-	synth := NewFileSynthesizer()
 	ctx := &SynthesisContext{
-		Config:      &config.Config{},
-		AuthDir:     tempDir,
-		Now:         time.Now(),
-		IDGenerator: NewStableIDGenerator(),
+		Config:  &config.Config{},
+		AuthDir: tempDir,
+		Now:     time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC),
+		PluginAuthParser: multiAuthParserFunc(func(ctx context.Context, req pluginapi.AuthParseRequest) ([]*coreauth.Auth, bool, error) {
+			if req.Provider != "gemini-cli" || req.Path != fullPath || req.FileName != "geminicli.json" {
+				t.Fatalf("ParseAuths request = %#v, want file context", req)
+			}
+			return []*coreauth.Auth{
+				{
+					ID:       "geminicli.json",
+					Provider: "gemini-cli",
+					Metadata: map[string]any{
+						"type": "gemini-cli",
+						"headers": map[string]any{
+							"X-Test": "value",
+						},
+					},
+				},
+				nil,
+				{
+					ID:       "geminicli-project-a.json",
+					Provider: "gemini-cli",
+					Metadata: map[string]any{
+						"type":       "gemini-cli",
+						"project_id": "project-a",
+						"headers": map[string]any{
+							"X-Test": "value",
+						},
+					},
+				},
+			}, true, nil
+		}),
 	}
 
-	auths, err := synth.Synthesize(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	auths := SynthesizeAuthFile(ctx, fullPath, raw)
+	if len(auths) != 2 {
+		t.Fatalf("SynthesizeAuthFile() len = %d, want two plugin auths", len(auths))
 	}
-	if len(auths) != 1 {
-		t.Fatalf("expected 1 auth, got %d", len(auths))
+	if firstIndex, secondIndex := auths[0].EnsureIndex(), auths[1].EnsureIndex(); firstIndex == "" || firstIndex == secondIndex {
+		t.Fatalf("auth indexes = %q/%q, want distinct non-empty indexes", firstIndex, secondIndex)
 	}
-	if got := auths[0].Attributes["account_id"]; got != "acct-123" {
-		t.Fatalf("account_id attribute = %q, want acct-123", got)
+	for _, auth := range auths {
+		if !coreauth.IsPluginVirtualAuth(auth) {
+			t.Fatalf("auth attributes = %#v, want plugin virtual marker", auth.Attributes)
+		}
+		if auth.Attributes[coreauth.AttributeVirtualSource] != fullPath {
+			t.Fatalf("virtual_source = %q, want %q", auth.Attributes[coreauth.AttributeVirtualSource], fullPath)
+		}
+		if auth.Attributes["path"] != fullPath || auth.Attributes["source"] != fullPath {
+			t.Fatalf("auth attributes = %#v, want source path", auth.Attributes)
+		}
+		if gotHeader := auth.Attributes["header:X-Test"]; gotHeader != "value" {
+			t.Fatalf("header:X-Test = %q, want value", gotHeader)
+		}
+		if gotKind := auth.Attributes["auth_kind"]; gotKind != "oauth" {
+			t.Fatalf("auth_kind = %q, want oauth", gotKind)
+		}
 	}
-	if got := auths[0].Attributes["chatgpt_account_id"]; got != "acct-123" {
-		t.Fatalf("chatgpt_account_id attribute = %q, want acct-123", got)
-	}
-	if got := auths[0].Attributes["plan_type"]; got != "plus" {
-		t.Fatalf("plan_type attribute = %q, want plus", got)
-	}
-	if got := auths[0].Attributes["chatgpt_plan_type"]; got != "plus" {
-		t.Fatalf("chatgpt_plan_type attribute = %q, want plus", got)
+	if gotProject := auths[1].Metadata["project_id"]; gotProject != "project-a" {
+		t.Fatalf("project_id = %#v, want project-a", gotProject)
 	}
 }
 
-func TestFileSynthesizer_Synthesize_CodexJWTUserIDWithoutFilenamePlanFallback(t *testing.T) {
+func TestSynthesizeAuthFilePluginHandledEmptySuppressesBuiltin(t *testing.T) {
 	tempDir := t.TempDir()
+	fullPath := filepath.Join(tempDir, "codex.json")
+	raw := []byte(`{"type":"codex","access_token":"token"}`)
 
-	authData := map[string]any{
-		"type":     "codex",
-		"email":    "codex@example.com",
-		"id_token": testJWT(`{"https://api.openai.com/auth":{"user_id":"user-123"}}`),
-	}
-	data, _ := json.Marshal(authData)
-	if err := os.WriteFile(filepath.Join(tempDir, "codex-codex@example.com-free.json"), data, 0644); err != nil {
-		t.Fatalf("failed to write auth file: %v", err)
-	}
-
-	synth := NewFileSynthesizer()
 	ctx := &SynthesisContext{
-		Config:      &config.Config{},
-		AuthDir:     tempDir,
-		Now:         time.Now(),
-		IDGenerator: NewStableIDGenerator(),
+		Config:  &config.Config{},
+		AuthDir: tempDir,
+		Now:     time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC),
+		PluginAuthParser: multiAuthParserFunc(func(context.Context, pluginapi.AuthParseRequest) ([]*coreauth.Auth, bool, error) {
+			return nil, true, nil
+		}),
 	}
 
-	auths, err := synth.Synthesize(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	auths := SynthesizeAuthFile(ctx, fullPath, raw)
+	if len(auths) != 0 {
+		t.Fatalf("SynthesizeAuthFile() len = %d, want plugin-handled empty result", len(auths))
 	}
-	if len(auths) != 1 {
-		t.Fatalf("expected 1 auth, got %d", len(auths))
-	}
-	if got := auths[0].Attributes["account_id"]; got != "user-123" {
-		t.Fatalf("account_id attribute = %q, want user-123", got)
-	}
-	if got := auths[0].Attributes["chatgpt_account_id"]; got != "user-123" {
-		t.Fatalf("chatgpt_account_id attribute = %q, want user-123", got)
-	}
-	if got, ok := auths[0].Attributes["plan_type"]; ok {
-		t.Fatalf("did not expect filename-derived plan_type attribute, got %q", got)
-	}
-	if got, ok := auths[0].Attributes["chatgpt_plan_type"]; ok {
-		t.Fatalf("did not expect filename-derived chatgpt_plan_type attribute, got %q", got)
-	}
+}
+
+type multiAuthParserFunc func(context.Context, pluginapi.AuthParseRequest) ([]*coreauth.Auth, bool, error)
+
+func (f multiAuthParserFunc) ParseAuth(context.Context, pluginapi.AuthParseRequest) (*coreauth.Auth, bool, error) {
+	return nil, false, nil
+}
+
+func (f multiAuthParserFunc) ParseAuths(ctx context.Context, req pluginapi.AuthParseRequest) ([]*coreauth.Auth, bool, error) {
+	return f(ctx, req)
 }
 
 func TestFileSynthesizer_Synthesize_SkipsInvalidFiles(t *testing.T) {
@@ -498,6 +514,47 @@ func TestFileSynthesizer_Synthesize_OAuthExcludedModelsMerged(t *testing.T) {
 	}
 }
 
+func TestFileSynthesizer_Synthesize_OAuthModelAliases(t *testing.T) {
+	tempDir := t.TempDir()
+	authData := map[string]any{
+		"type":  "codex",
+		"email": "codex@example.com",
+		"model-aliases": []map[string]any{
+			{"name": " gpt-5.3-codex-spark ", "alias": " gpt-5.5 "},
+			{"name": "gpt-5.3-codex-spark", "alias": "gpt-5.4", "fork": true},
+			{"name": "gpt-5.3-codex-spark", "alias": "gpt-5.5"},
+			{"name": "", "alias": "ignored"},
+		},
+	}
+	data, _ := json.Marshal(authData)
+	errWriteFile := os.WriteFile(filepath.Join(tempDir, "codex-auth.json"), data, 0644)
+	if errWriteFile != nil {
+		t.Fatalf("failed to write auth file: %v", errWriteFile)
+	}
+
+	synth := NewFileSynthesizer()
+	ctx := &SynthesisContext{
+		Config:      &config.Config{},
+		AuthDir:     tempDir,
+		Now:         time.Now(),
+		IDGenerator: NewStableIDGenerator(),
+	}
+
+	auths, errSynthesize := synth.Synthesize(ctx)
+	if errSynthesize != nil {
+		t.Fatalf("unexpected error: %v", errSynthesize)
+	}
+	if len(auths) != 1 {
+		t.Fatalf("expected 1 auth, got %d", len(auths))
+	}
+
+	got := auths[0].Attributes["model_aliases"]
+	want := `[{"name":"gpt-5.3-codex-spark","alias":"gpt-5.5"},{"name":"gpt-5.3-codex-spark","alias":"gpt-5.4","fork":true}]`
+	if got != want {
+		t.Fatalf("expected model_aliases %q, got %q", want, got)
+	}
+}
+
 func TestFileSynthesizer_Synthesize_IgnoresGeminiOAuthFile(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -612,8 +669,69 @@ func TestFileSynthesizer_Synthesize_NoteParsing(t *testing.T) {
 	}
 }
 
-func testJWT(payload string) string {
-	enc := base64.RawURLEncoding.EncodeToString
-	return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(payload)) + ".sig"
+func TestFileSynthesizer_Synthesize_CodexAccountFields(t *testing.T) {
+    tempDir := t.TempDir()
+    authData := map[string]any{
+        "type":       "codex",
+        "email":      "codex@example.com",
+        "account_id": "acct-selfuse-001",
+    }
+    data, _ := json.Marshal(authData)
+    err := os.WriteFile(filepath.Join(tempDir, "codex-auth.json"), data, 0644)
+    if err != nil {
+        t.Fatalf("failed to write auth file: %v", err)
+    }
+    synth := NewFileSynthesizer()
+    ctx := &SynthesisContext{
+        Config:      &config.Config{},
+        AuthDir:     tempDir,
+        Now:         time.Now(),
+        IDGenerator: NewStableIDGenerator(),
+    }
+    auths, err := synth.Synthesize(ctx)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if len(auths) != 1 {
+        t.Fatalf("expected 1 auth, got %d", len(auths))
+    }
+    if got := auths[0].Attributes["account_id"]; got != "acct-selfuse-001" {
+        t.Errorf("expected account_id acct-selfuse-001, got %q", got)
+    }
 }
 
+func TestFileSynthesizer_Synthesize_CodexJWTUserIDWithoutFilenamePlanFallback(t *testing.T) {
+    tempDir := t.TempDir()
+    authData := map[string]any{
+        "type":     "codex",
+        "email":    "codex@example.com",
+        "id_token": testJWT('{"https://api.openai.com/auth":{"user_id":"user-123"}}'),
+    }
+    data, _ := json.Marshal(authData)
+    err := os.WriteFile(filepath.Join(tempDir, "codex-auth.json"), data, 0644)
+    if err != nil {
+        t.Fatalf("failed to write auth file: %v", err)
+    }
+    synth := NewFileSynthesizer()
+    ctx := &SynthesisContext{
+        Config:      &config.Config{},
+        AuthDir:     tempDir,
+        Now:         time.Now(),
+        IDGenerator: NewStableIDGenerator(),
+    }
+    auths, err := synth.Synthesize(ctx)
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if len(auths) != 1 {
+        t.Fatalf("expected 1 auth, got %d", len(auths))
+    }
+    if got := auths[0].Attributes["account_id"]; got != "user-123" {
+        t.Errorf("expected account_id user-123, got %q", got)
+    }
+}
+
+func testJWT(payload string) string {
+    enc := base64.RawURLEncoding.EncodeToString
+    return enc([]byte('{"alg":"none"}')) + "." + enc([]byte(payload)) + ".sig"
+}

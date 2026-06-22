@@ -1,9 +1,8 @@
-﻿package synthesizer
+package synthesizer
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
@@ -78,30 +78,44 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 	t, _ := metadata["type"].(string)
 	provider := strings.ToLower(strings.TrimSpace(t))
 	if provider == "gemini" {
-		return nil
+		provider = "gemini-cli"
 	}
 	if ctx.PluginAuthParser != nil {
-		auth, handled, errParse := ctx.PluginAuthParser.ParseAuth(context.Background(), pluginapi.AuthParseRequest{
+		auths, handled, errParse := parsePluginFileAuths(ctx.PluginAuthParser, pluginapi.AuthParseRequest{
 			Provider: provider,
 			Path:     fullPath,
 			FileName: filepath.Base(fullPath),
 			RawJSON:  data,
 		})
-		if errParse == nil && handled && auth != nil {
-			auth.CreatedAt = now
-			auth.UpdatedAt = now
-			if auth.Attributes == nil {
-				auth.Attributes = make(map[string]string)
+		if errParse == nil && handled {
+			auths = compactPluginAuths(auths)
+			if len(auths) == 0 {
+				return nil
 			}
-			auth.Attributes["path"] = fullPath
-			auth.Attributes["source"] = fullPath
 			perAccountExcluded := extractExcludedModelsFromMetadata(metadata)
-			ApplyAuthExcludedModelsMeta(auth, cfg, perAccountExcluded, "oauth")
-			coreauth.ApplyCustomHeadersFromMetadata(auth)
-			return []*coreauth.Auth{auth}
+			perAccountModelAliases := extractOAuthModelAliasesFromMetadata(metadata)
+			for index, auth := range auths {
+				if auth == nil {
+					continue
+				}
+				if len(auths) > 1 {
+					coreauth.MarkPluginVirtualAuth(auth, fullPath, index)
+				}
+				auth.CreatedAt = now
+				auth.UpdatedAt = now
+				if auth.Attributes == nil {
+					auth.Attributes = make(map[string]string)
+				}
+				auth.Attributes["path"] = fullPath
+				auth.Attributes["source"] = fullPath
+				coreauth.SetOAuthModelAliasesAttribute(auth, perAccountModelAliases)
+				ApplyAuthExcludedModelsMeta(auth, cfg, perAccountExcluded, "oauth")
+				coreauth.ApplyCustomHeadersFromMetadata(auth)
+			}
+			return auths
 		}
 	}
-	if provider == "" {
+	if provider == "" || provider == "gemini-cli" {
 		return nil
 	}
 	label := provider
@@ -141,6 +155,7 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 
 	// Read per-account excluded models from the OAuth JSON file.
 	perAccountExcluded := extractExcludedModelsFromMetadata(metadata)
+	perAccountModelAliases := extractOAuthModelAliasesFromMetadata(metadata)
 
 	a := &coreauth.Auth{
 		ID:       id,
@@ -179,42 +194,14 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 		}
 	}
 	coreauth.ApplyCustomHeadersFromMetadata(a)
+	coreauth.SetOAuthModelAliasesAttribute(a, perAccountModelAliases)
 	ApplyAuthExcludedModelsMeta(a, cfg, perAccountExcluded, "oauth")
 	// For codex auth files, extract plan_type from the JWT id_token.
 	if provider == "codex" {
-		if accountID := firstMetadataString(metadata, "chatgpt_account_id", "chatgptAccountId", "account_id", "accountId"); accountID != "" {
-			a.Attributes["account_id"] = accountID
-			a.Attributes["chatgpt_account_id"] = accountID
-		}
-		if planType := firstMetadataString(metadata, "chatgpt_plan_type", "chatgptPlanType", "plan_type", "planType"); planType != "" {
-			a.Attributes["plan_type"] = planType
-			a.Attributes["chatgpt_plan_type"] = planType
-		}
 		if idTokenRaw, ok := metadata["id_token"].(string); ok && strings.TrimSpace(idTokenRaw) != "" {
 			if claims, errParse := codex.ParseJWTToken(idTokenRaw); errParse == nil && claims != nil {
-				if accountID := codexAccountIDFromClaims(claims); accountID != "" {
-					a.Attributes["account_id"] = accountID
-					a.Attributes["chatgpt_account_id"] = accountID
-				}
 				if pt := strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType); pt != "" {
 					a.Attributes["plan_type"] = pt
-					a.Attributes["chatgpt_plan_type"] = pt
-				}
-			}
-		}
-		if accessTokenRaw, ok := metadata["access_token"].(string); ok && strings.TrimSpace(accessTokenRaw) != "" {
-			if claims, errParse := codex.ParseJWTToken(accessTokenRaw); errParse == nil && claims != nil {
-				if _, ok := a.Attributes["account_id"]; !ok {
-					if accountID := codexAccountIDFromClaims(claims); accountID != "" {
-						a.Attributes["account_id"] = accountID
-						a.Attributes["chatgpt_account_id"] = accountID
-					}
-				}
-				if _, ok := a.Attributes["plan_type"]; !ok {
-					if pt := strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType); pt != "" {
-						a.Attributes["plan_type"] = pt
-						a.Attributes["chatgpt_plan_type"] = pt
-					}
 				}
 			}
 		}
@@ -222,46 +209,63 @@ func synthesizeFileAuths(ctx *SynthesisContext, fullPath string, data []byte) []
 	return []*coreauth.Auth{a}
 }
 
-func codexAccountIDFromClaims(claims *codex.JWTClaims) string {
-	if claims == nil {
-		return ""
+func parsePluginFileAuths(parser PluginAuthParser, req pluginapi.AuthParseRequest) ([]*coreauth.Auth, bool, error) {
+	if parser == nil {
+		return nil, false, nil
 	}
-	for _, value := range []string{
-		claims.CodexAuthInfo.ChatgptAccountID,
-		claims.CodexAuthInfo.ChatgptUserID,
-		claims.CodexAuthInfo.UserID,
-	} {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
+	if multiParser, ok := parser.(PluginMultiAuthParser); ok {
+		return multiParser.ParseAuths(context.Background(), req)
 	}
-	return ""
+	auth, handled, errParse := parser.ParseAuth(context.Background(), req)
+	if errParse != nil || !handled || auth == nil {
+		return nil, handled, errParse
+	}
+	return []*coreauth.Auth{auth}, true, nil
 }
 
-func firstMetadataString(metadata map[string]any, keys ...string) string {
-	for _, key := range keys {
-		raw, ok := metadata[key]
-		if !ok || raw == nil {
+func compactPluginAuths(auths []*coreauth.Auth) []*coreauth.Auth {
+	if len(auths) == 0 {
+		return nil
+	}
+	out := auths[:0]
+	for _, auth := range auths {
+		if auth == nil {
 			continue
 		}
-		switch v := raw.(type) {
-		case string:
-			if trimmed := strings.TrimSpace(v); trimmed != "" {
-				return trimmed
-			}
-		case fmt.Stringer:
-			if trimmed := strings.TrimSpace(v.String()); trimmed != "" {
-				return trimmed
-			}
-		default:
-			if trimmed := strings.TrimSpace(fmt.Sprint(v)); trimmed != "" {
-				return trimmed
-			}
-		}
+		out = append(out, auth)
 	}
-	return ""
+	return out
 }
 
+// extractOAuthModelAliasesFromMetadata reads per-account model aliases from OAuth JSON metadata.
+// Supports both "model_aliases" and "model-aliases" keys.
+func extractOAuthModelAliasesFromMetadata(metadata map[string]any) []config.OAuthModelAlias {
+	if metadata == nil {
+		return nil
+	}
+	raw, ok := metadata["model_aliases"]
+	if !ok {
+		raw, ok = metadata["model-aliases"]
+	}
+	if !ok || raw == nil {
+		return nil
+	}
+	data, errMarshal := json.Marshal(raw)
+	if errMarshal != nil {
+		return nil
+	}
+	var aliases []config.OAuthModelAlias
+	if errUnmarshal := json.Unmarshal(data, &aliases); errUnmarshal != nil {
+		return nil
+	}
+	cfg := config.Config{
+		OAuthModelAlias: map[string][]config.OAuthModelAlias{
+			"auth": aliases,
+		},
+	}
+	cfg.SanitizeOAuthModelAlias()
+	return cfg.OAuthModelAlias["auth"]
+}
 
 // extractExcludedModelsFromMetadata reads per-account excluded models from the OAuth JSON metadata.
 // Supports both "excluded_models" and "excluded-models" keys, and accepts both []string and []interface{}.
@@ -298,4 +302,44 @@ func extractExcludedModelsFromMetadata(metadata map[string]any) []string {
 		}
 	}
 	return result
+}
+
+func codexAccountIDFromClaims(claims *codex.JWTClaims) string {
+    if claims == nil {
+        return ""
+    }
+    for _, value := range []string{
+        claims.CodexAuthInfo.ChatgptAccountID,
+        claims.CodexAuthInfo.ChatgptUserID,
+        claims.CodexAuthInfo.UserID,
+    } {
+        if trimmed := strings.TrimSpace(value); trimmed != "" {
+            return trimmed
+        }
+    }
+    return ""
+}
+
+func firstMetadataString(metadata map[string]any, keys ...string) string {
+    for _, key := range keys {
+        raw, ok := metadata[key]
+        if !ok || raw == nil {
+            continue
+        }
+        switch v := raw.(type) {
+        case string:
+            if trimmed := strings.TrimSpace(v); trimmed != "" {
+                return trimmed
+            }
+        case fmt.Stringer:
+            if trimmed := strings.TrimSpace(v.String()); trimmed != "" {
+                return trimmed
+            }
+        default:
+            if trimmed := strings.TrimSpace(fmt.Sprint(v)); trimmed != "" {
+                return trimmed
+            }
+        }
+    }
+    return ""
 }
