@@ -705,7 +705,7 @@ func TestFileSynthesizer_Synthesize_CodexJWTUserIDWithoutFilenamePlanFallback(t 
     authData := map[string]any{
         "type":     "codex",
         "email":    "codex@example.com",
-        "id_token": testJWT('{"https://api.openai.com/auth":{"user_id":"user-123"}}'),
+        "id_token": testJWT(`{"https://api.openai.com/auth":{"user_id":"user-123"}}`),
     }
     data, _ := json.Marshal(authData)
     err := os.WriteFile(filepath.Join(tempDir, "codex-auth.json"), data, 0644)
@@ -733,5 +733,5 @@ func TestFileSynthesizer_Synthesize_CodexJWTUserIDWithoutFilenamePlanFallback(t 
 
 func testJWT(payload string) string {
     enc := base64.RawURLEncoding.EncodeToString
-    return enc([]byte('{"alg":"none"}')) + "." + enc([]byte(payload)) + ".sig"
+    return enc([]byte(`{"alg":"none"}`)) + "." + enc([]byte(payload)) + ".sig"
 }
