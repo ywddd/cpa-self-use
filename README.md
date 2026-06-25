@@ -1,141 +1,229 @@
-# CPA 鑷敤鐗?
-
-杩欐槸鍩轰簬 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 鐨勮嚜鐢ㄦ瀯寤猴紝閲嶇偣鏈嶅姟 Codex/Responses 绋冲畾鎬с€佸璐﹀彿杩愯銆丯AS/Docker 閮ㄧ讲鍜屾棩甯?CPA 绠＄悊銆?
-
-褰撳墠鍚屾鍩虹嚎锛氫笂娓?`v7.2.37`銆傝嚜鐢ㄧ増鏈缓璁爣璁颁负锛?
-
-```text
-v7.2.37-selfuse.20260625
-```
-
-## 鏈瀯寤轰繚鐣欑殑鏀瑰姩
-
-### 1. Codex 涓婁笅鏂囪繃闀跨洿鎺ヤ氦鍥炲鎴风
-
-褰?Codex 涓婃父浠?`context_too_large` / `context_length_exceeded` 缁撴潫娴佸紡鍝嶅簲鏃讹紝鏈瀯寤轰笉鍦?CPA 涓棿灞傝嚜琛屽帇缂╁巻鍙层€佺敓鎴?`history.txt` 鎴栫Щ闄?reasoning 鍚庣户缁噸璇曘€?
-
-杩欐牱鍙互閬垮厤 CPA 鎶婂巻鍙蹭細璇濇敼鍐欐垚鏂扮殑璇锋眰鍚庡啀娆″杺缁欐ā鍨嬶紝闄嶄綆闀夸細璇濋噷閲嶅璇诲伐浣滃尯銆侀噸澶嶇‘璁ょ姸鎬併€侀噸澶嶈鍒掔殑椋庨櫓銆?
-
-### 2. 鍔犲瘑 reasoning 涓婁笅鏂囬檷绾ч噸璇?
-
-閮ㄥ垎 Codex/Responses 璇锋眰浼氭惡甯?`input[*].encrypted_content`銆傚綋涓婃父鏄庣‘鎷掔粷杩欐鍔犲瘑 reasoning 涓婁笅鏂囨椂锛屾湰鏋勫缓浼氱Щ闄ゆ棤鏁堢殑鍔犲瘑 reasoning 涓婁笅鏂囷紝骞堕噸璇曚竴娆°€?
-
-鍚屾椂锛屽綋涓婃父杩斿洖 `Item with id 'rs_...' not found` 涓旀彁绀?`store=false` 鏃讹紝涔熶細绉婚櫎 stale reasoning item 骞堕噸璇曚竴娆°€?
-
-### 3. Codex 鍝嶅簲澶磋秴鏃?
-
-Codex 涓婃父璇锋眰鏈夋椂浼氬湪杩斿洖鍝嶅簲澶村墠鍗′綇銆傛湰鏋勫缓澧炲姞鍙綔鐢ㄤ簬鍝嶅簲澶撮樁娈电殑瓒呮椂锛?
-
-```yaml
-codex-response-header-timeout-seconds: 180
-```
-
-鍝嶅簲澶村埌杈惧悗鐨勬祦寮忔鏂囦笉鍙楄瓒呮椂闄愬埗銆傝缃负璐熸暟鍙叧闂細
-
-```yaml
-codex-response-header-timeout-seconds: -1
-```
-
-涔熸敮鎸佺幆澧冨彉閲忚鐩栵細
-
-```bash
-CPA_CODEX_RESPONSE_HEADER_TIMEOUT_SECONDS=180
-```
-
-### 4. OpenAI-compatible JSON 棰勬
-
-Kimi K2.7 Code 绛夎蛋 `openai-compatibility` 鐨勬ā鍨嬪湪璇锋眰浣撳寘鍚湭杞箟鍙嶆枩鏉犳椂锛屼笂娓稿彲鑳借繑鍥?Cloudflare 渚х殑 `invalid escaped character in string`銆?
-
-鏈瀯寤轰細鍦ㄥ叆鍙ｈ矾鐢卞墠鍜屽彂寰€ OpenAI-compatible 涓婃父鍓嶅 JSON 鍋氬吋瀹瑰鐞嗭細
-
-- 瀵?`C:\Users\...` 杩欑被甯歌鏈浆涔?Windows 璺緞锛岃嚜鍔ㄤ慨澶嶅瓧绗︿覆閲岀殑闈炴硶鍙嶆枩鏉犺浆涔夊悗缁х画璇锋眰銆?
-- `/v1/chat/completions` 鍜?`/v1/completions` 浼氬厛淇/鏍￠獙璇锋眰浣擄紝鍐嶈鍙?`model` 鍋?provider 璺敱銆?
-- 瀵圭己寮曞彿銆佺粨鏋勬崯鍧忕瓑涓嶅彲鎭㈠鐨勯潪娉?JSON锛屼粛鐒跺湪 CPA 鏈湴杩斿洖 `400`銆?
-
-### 5. 绠＄悊 UI 澧炲己
-
-绠＄悊椤典繚鐣?selfuse 鐨勮繍缁村寮猴細
-
-- 鍙鍖栭厤缃?`codex-response-header-timeout-seconds`銆?
-- auth 鏂囦欢鍗曠嫭娴嬭瘯妯″瀷銆?
-- 褰撳墠椤垫壒閲忔祴璇?auth 鏂囦欢銆?
-- 姣忎釜璐﹀彿鏄剧ず娴嬭瘯缁撴灉鍜屽欢杩熴€?
-
-## 涓婃父鍚屾鎽樿
-
-鏈疆浠?`v7.2.16` 鍚堝苟鍒?`v7.2.35`锛岄噸鐐瑰寘鎷細
-
-- 绠＄悊鏃ュ織 API 澧炲姞 cursor/tail/杞浆缁鑳藉姏銆?
-- 鎻掍欢鍒犻櫎銆侀厤缃慨鏀广€佺敓鍛藉懆鏈熷拰 stream callback 鐨勫紓姝?reload/race 淇銆?
-- 鏂板鎻掍欢 ModelRouter锛屽彲鍦ㄩ壌鏉冨墠鍋氭ā鍨嬭矾鐢便€?
-- Claude/Anthropic 鍏煎澧炲己锛屽寘鎷?web search tool domain 娓呮礂銆乼ool_result 瑙勮寖鍖栥€丆odex web_search_call 娴佸紡杞崲淇銆乶amespace/function call 鏄犲皠澧炲己銆?
-- 瑙嗛杈撳叆澧炲己锛屽鍔?`video_url` 鎻愬彇鍜屾牎楠屻€?
-- 鎻掍欢榛樿 `Enabled` 琛屼负鏀逛负 `false`锛屽凡鏈夋彃浠堕厤缃渶瑕佹樉寮忓惎鐢ㄣ€?
-
-涓婃父宸茬粡瑕嗙洊鐨勯€氱敤淇灏介噺浣跨敤瀹樻柟瀹炵幇锛涗笂娓稿皻鏈鐩栫殑 selfuse 杩愯琛ヤ竵缁х画淇濈暀銆?
-
-## 鎺ㄨ崘閰嶇疆
-
-```yaml
-request-retry: 3
-max-retry-credentials: 3
-max-retry-interval: 30
-
-routing:
-  session-affinity: true
-
-nonstream-keepalive-interval: 15
-codex-response-header-timeout-seconds: 180
-
-streaming:
-  keepalive-seconds: 15
-  bootstrap-retries: 1
-```
-
-## Docker Compose 浣跨敤
-
-鏋勫缓骞跺惎鍔細
-
-```bash
-docker compose up -d --build
-```
-
-绠＄悊椤靛拰 API 绔彛鍙栧喅浜庝綘鐨?compose 鏂囦欢銆傚弬鑰冮儴缃蹭腑锛?
-
-```text
-CPA API:    http://<host>:8317
-CPA Plus:   http://<host>:18317/management.html
-```
-
-## 鐗堟湰瑙勫垯
-
-鏈粨搴撶殑鑷敤鍙戝竷鐗堟湰鍥哄畾浣跨敤 `selfuse` 鍚庣紑锛屼緥濡傦細
-
-```text
-v7.2.37-selfuse.20260625
-```
-
-NAS 鏈湴 Docker 闀滃儚寤鸿浣跨敤绋冲畾鏍囩锛?
-
-```text
-cli-proxy-api:v7.2.37-selfuse.20260625
-```
-
-## 瀹夊叏璇存槑
-
-涓嶈鎻愪氦鐪熷疄 auth 鏂囦欢銆乺efresh token銆乤ccess token銆乮d token銆乵anagement key 鎴?API key銆傛帹鑽愪綔涓鸿繍琛屾€佹枃浠朵繚鐣欏湪浠撳簱澶栨垨 `.gitignore` 涓細
-
-```text
-auth-dir/
-auths/
-logs/
-*.sqlite
-*.db
-config.yaml
-```
-
-鍏紑 fork 鎴栧彂甯冨墠锛屽缓璁壂鎻忔晱鎰熶俊鎭細
-
-```bash
-rg -n "github_pat_|refresh_token|access_token|id_token|sk-[A-Za-z0-9]|secret-key:" .
-```
+# CPA 自用部署仓库
+
+这是基于 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 维护的自用分支，主要用于 NAS / Docker 环境下运行 CLIProxyAPI 和 CPA 管理界面。
+
+本仓库偏向个人部署与日常运维，不建议把真实配置、账号 token、管理密钥或 API key 提交到仓库。
+
+## 当前版本
+
+当前同步基线：上游 `v7.2.37`。
+
+自用版本建议标记为：
+
+```text
+v7.2.37-selfuse.20260625
+```
+
+## 自用保留改动
+
+本分支在上游基础上保留了一些面向 Codex、Responses、多账号和 NAS 部署的自用改动。
+
+### 1. Codex 上下文过长处理
+
+当 Codex 上游返回 `context_too_large`、`context_length_exceeded` 等错误时，本分支倾向于把错误交回客户端处理，而不是在 CPA 中间层强行压缩历史、生成 `history.txt` 或移除 reasoning 后继续重试。
+
+这样可以避免长会话中出现重复读取工作区、重复确认状态、重复规划任务等问题。
+
+### 2. 加密 reasoning 降级重试
+
+部分 Codex / Responses 请求会携带 `input[*].encrypted_content`。当上游明确拒绝这类加密 reasoning 上下文时，本分支会移除无效的加密 reasoning 上下文，并重试一次。
+
+当上游返回 `Item with id 'rs_...' not found` 且提示 `store=false` 时，也会移除 stale reasoning item 后重试一次。
+
+### 3. Codex 响应头超时
+
+Codex 请求有时会卡在响应头阶段。本分支支持只作用于“等待响应头”的超时配置：
+
+```yaml
+codex-response-header-timeout-seconds: 180
+```
+
+响应头到达后的流式正文不受这个超时限制。
+
+关闭该超时：
+
+```yaml
+codex-response-header-timeout-seconds: -1
+```
+
+也可以通过环境变量覆盖：
+
+```bash
+CPA_CODEX_RESPONSE_HEADER_TIMEOUT_SECONDS=180
+```
+
+### 4. OpenAI-compatible JSON 预检
+
+Kimi、OpenAI-compatible 等入口在遇到包含未转义反斜杠的请求体时，上游可能返回 `invalid escaped character in string`。
+
+本分支会在路由前和转发前做兼容处理：
+
+- 常见 Windows 路径中的非法反斜杠会被修复后继续请求。
+- `/v1/chat/completions` 和 `/v1/completions` 会先修复/校验请求体，再读取 `model` 做 provider 路由。
+- 缺引号、结构损坏等不可恢复的非法 JSON 仍会在本地返回 `400`。
+
+### 5. 管理界面增强
+
+自用管理界面保留以下运维增强：
+
+- 可视化配置 `codex-response-header-timeout-seconds`。
+- 单独测试 auth 文件。
+- 当前页批量测试 auth 文件。
+- 每个账号展示测试结果和延迟。
+
+## 推荐配置
+
+以下配置适合 NAS 上的长期自用服务，可按实际情况调整：
+
+```yaml
+request-retry: 3
+max-retry-credentials: 3
+max-retry-interval: 30
+
+routing:
+  session-affinity: true
+
+nonstream-keepalive-interval: 15
+codex-response-header-timeout-seconds: 180
+
+streaming:
+  keepalive-seconds: 15
+  bootstrap-retries: 1
+```
+
+## NAS / Docker 部署
+
+### 目录建议
+
+建议把运行态文件放在仓库外，或至少不要加入 Git：
+
+```text
+/volume1/docker/cpa/config.yaml
+/volume1/docker/cpa/auth-dir/
+/volume1/docker/cpa/plugins/
+/volume1/docker/cpa/cpa-manager-data/
+```
+
+### 启动服务
+
+在部署目录执行：
+
+```bash
+docker compose up -d --build
+```
+
+查看服务状态：
+
+```bash
+docker compose ps
+```
+
+查看日志：
+
+```bash
+docker compose logs -f --tail=200 cli-proxy-api
+```
+
+### 端口说明
+
+端口以你的 `docker-compose.yaml` 为准。常见自用部署中：
+
+```text
+CPA API:  http://<host>:8317
+管理界面: http://<host>:18317/management.html
+```
+
+## 更新流程
+
+推荐流程：
+
+```bash
+git fetch origin main
+git checkout main
+git pull --ff-only origin main
+docker compose up -d --build
+```
+
+如果 NAS 上还有历史构建目录或缓存，可以在确认当前版本可用后清理：
+
+```bash
+rm -rf build-v* .gocache .gomodcache tmp-*
+```
+
+不要删除正在挂载使用的目录，例如 `config.yaml`、`auth-dir/`、`plugins/`、`cpa-manager-data/`。
+
+## 安全注意事项
+
+不要提交以下内容：
+
+```text
+auth-dir/
+auths/*.json
+logs/
+*.sqlite
+*.db
+config.yaml
+docker-compose.yaml
+.env
+*.bak
+```
+
+不要把以下真实值写进仓库：
+
+- API key
+- management key
+- access token
+- refresh token
+- id token
+- cookie
+- 私钥或云厂商凭证
+
+提交前建议先扫一遍：
+
+```bash
+rg -n -I "github_pat_|ghp_|refresh_token|access_token|id_token|sk-[A-Za-z0-9]|secret-key|BEGIN .*PRIVATE KEY" .
+```
+
+如果发现密钥已经提交到公开仓库，应立即：
+
+1. 撤销或轮换对应密钥。
+2. 删除当前分支里的敏感文件。
+3. 如有必要，再重写 Git 历史。
+
+## 常用排查命令
+
+检查容器：
+
+```bash
+docker compose ps
+```
+
+查看 API 日志：
+
+```bash
+docker compose logs -f --tail=200 cli-proxy-api
+```
+
+重启服务：
+
+```bash
+docker compose restart cli-proxy-api cpa-manager cpa-manager-proxy
+```
+
+检查当前 Git 版本：
+
+```bash
+git status --short --branch
+git log --oneline -5
+```
+
+检查 README 是否为可读 UTF-8：
+
+```bash
+file README.md
+sed -n '1,80p' README.md
+```
+
+## 说明
+
+本仓库是自用部署仓库，优先保证 NAS 上的稳定运行和维护便利。上游已经覆盖的通用修复尽量使用官方实现；上游尚未覆盖的自用运行补丁会继续保留。
