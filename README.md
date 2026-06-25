@@ -2,10 +2,10 @@
 
 杩欐槸鍩轰簬 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 鐨勮嚜鐢ㄦ瀯寤猴紝閲嶇偣鏈嶅姟 Codex/Responses 绋冲畾鎬с€佸璐﹀彿杩愯銆丯AS/Docker 閮ㄧ讲鍜屾棩甯?CPA 绠＄悊銆?
 
-褰撳墠鍚屾鍩虹嚎锛氫笂娓?`v7.2.35`銆傝嚜鐢ㄧ増鏈缓璁爣璁颁负锛?
+褰撳墠鍚屾鍩虹嚎锛氫笂娓?`v7.2.37`銆傝嚜鐢ㄧ増鏈缓璁爣璁颁负锛?
 
 ```text
-v7.2.35-selfuse.20260624
+v7.2.37-selfuse.20260625
 ```
 
 ## 鏈瀯寤轰繚鐣欑殑鏀瑰姩
@@ -112,13 +112,13 @@ CPA Plus:   http://<host>:18317/management.html
 鏈粨搴撶殑鑷敤鍙戝竷鐗堟湰鍥哄畾浣跨敤 `selfuse` 鍚庣紑锛屼緥濡傦細
 
 ```text
-v7.2.35-selfuse.20260624
+v7.2.37-selfuse.20260625
 ```
 
 NAS 鏈湴 Docker 闀滃儚寤鸿浣跨敤绋冲畾鏍囩锛?
 
 ```text
-cli-proxy-api:v7.2.35-selfuse.20260624
+cli-proxy-api:v7.2.37-selfuse.20260625
 ```
 
 ## 瀹夊叏璇存槑
