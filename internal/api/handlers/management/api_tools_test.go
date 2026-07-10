@@ -2,6 +2,7 @@ package management
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -208,5 +209,50 @@ func TestAuthByIndexDistinguishesSharedAPIKeysAcrossProviders(t *testing.T) {
 	}
 	if gotCompat.ID != compatAuth.ID {
 		t.Fatalf("authByIndex(compat) returned %q, want %q", gotCompat.ID, compatAuth.ID)
+	}
+}
+
+func TestNormalizeXAIQuotaResponseDefaultsMissingUsagePercentToZero(t *testing.T) {
+	t.Parallel()
+
+	input := []byte(`{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-07-08T00:00:00Z","end":"2026-07-15T00:00:00Z"},"onDemandCap":{"val":0}}}`)
+	got := normalizeManagementAPIResponse("https://cli-chat-proxy.grok.com/v1/billing?format=credits", http.StatusOK, input)
+
+	var payload map[string]any
+	if errUnmarshal := json.Unmarshal(got, &payload); errUnmarshal != nil {
+		t.Fatalf("json.Unmarshal returned error: %v", errUnmarshal)
+	}
+	configPayload, ok := payload["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("config = %T, want map[string]any", payload["config"])
+	}
+	if gotPercent, okPercent := configPayload["creditUsagePercent"].(float64); !okPercent || gotPercent != 0 {
+		t.Fatalf("creditUsagePercent = %#v, want 0", configPayload["creditUsagePercent"])
+	}
+}
+
+func TestNormalizeXAIQuotaResponseLeavesNonQuotaResponsesUntouched(t *testing.T) {
+	t.Parallel()
+
+	input := []byte(`{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY"}}}`)
+	cases := []struct {
+		name       string
+		url        string
+		statusCode int
+	}{
+		{name: "different host", url: "https://example.com/v1/billing?format=credits", statusCode: http.StatusOK},
+		{name: "upstream failure", url: "https://cli-chat-proxy.grok.com/v1/billing?format=credits", statusCode: http.StatusUnauthorized},
+		{name: "non credits endpoint", url: "https://cli-chat-proxy.grok.com/v1/billing", statusCode: http.StatusOK},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := normalizeManagementAPIResponse(tc.url, tc.statusCode, input)
+			if string(got) != string(input) {
+				t.Fatalf("response changed to %s, want %s", got, input)
+			}
+		})
 	}
 }
