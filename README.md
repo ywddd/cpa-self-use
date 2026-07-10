@@ -30,10 +30,6 @@
 
 该分支保留 auth 文件测试、批量测试和账号测试结果展示等管理界面增强。
 
-### xAI 配额零值兼容
-
-当 xAI `/v1/billing?format=credits` 返回有效计费周期，但按 protobuf JSON 规则省略值为 0 的 `creditUsagePercent` 字段时，管理 API 会补全为 `0`，使 CPA Manager Plus 正确显示“已用 0%”和重置时间。非成功响应或无效响应结构不会被改写。
-
 ## 上游关系
 
 - 通用修复来自上游实现。

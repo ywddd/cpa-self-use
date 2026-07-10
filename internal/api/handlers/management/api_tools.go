@@ -195,53 +195,11 @@ func (h *Handler) APICall(c *gin.Context) {
 		return
 	}
 
-	respBody = normalizeManagementAPIResponse(urlStr, resp.StatusCode, respBody)
 	c.JSON(http.StatusOK, apiCallResponse{
 		StatusCode: resp.StatusCode,
 		Header:     resp.Header,
 		Body:       string(respBody),
 	})
-}
-
-func normalizeManagementAPIResponse(urlStr string, statusCode int, body []byte) []byte {
-	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
-		return body
-	}
-	parsedURL, errParseURL := url.Parse(urlStr)
-	if errParseURL != nil || !strings.EqualFold(parsedURL.Hostname(), "cli-chat-proxy.grok.com") || parsedURL.Path != "/v1/billing" || parsedURL.Query().Get("format") != "credits" {
-		return body
-	}
-
-	var payload map[string]any
-	if errUnmarshal := json.Unmarshal(body, &payload); errUnmarshal != nil {
-		return body
-	}
-	configPayload, okConfig := payload["config"].(map[string]any)
-	if !okConfig {
-		return body
-	}
-	if _, hasPercent := configPayload["creditUsagePercent"]; hasPercent {
-		return body
-	}
-	periodPayload, okPeriod := configPayload["currentPeriod"].(map[string]any)
-	if !okPeriod {
-		return body
-	}
-	periodType, _ := periodPayload["type"].(string)
-	periodStart, _ := periodPayload["start"].(string)
-	periodEnd, _ := periodPayload["end"].(string)
-	if strings.TrimSpace(periodType) == "" || strings.TrimSpace(periodStart) == "" || strings.TrimSpace(periodEnd) == "" {
-		return body
-	}
-
-	// The xAI billing endpoint uses protobuf JSON semantics, where numeric zero
-	// may be omitted. A valid current period with no usage field means 0% used.
-	configPayload["creditUsagePercent"] = 0
-	normalized, errMarshal := json.Marshal(payload)
-	if errMarshal != nil {
-		return body
-	}
-	return normalized
 }
 
 func firstNonEmptyString(values ...*string) string {
