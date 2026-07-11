@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.66`
+上游基线：`v7.2.67`
 
-自用版本：`v7.2.66-selfuse.20260711`
+自用版本：`v7.2.67-selfuse.20260712`
 
 ## 改动概要
 
@@ -17,6 +17,10 @@
 ### 加密 reasoning 降级重试
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
+
+### XAI custom 工具历史兼容
+
+向 Grok Responses 路由 Codex 会话时，将 `custom_tool_call` 历史转换为 XAI 支持的函数调用格式；对于 XAI 不支持且已过滤的 `apply_patch` 工具，其调用与输出历史会成对移除，避免上游返回 `ModelInput` 反序列化错误。
 
 ### Codex 响应头超时
 
