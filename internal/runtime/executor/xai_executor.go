@@ -848,6 +848,7 @@ func (e *XAIExecutor) prepareResponsesRequestTo(ctx context.Context, req cliprox
 	body, _ = sjson.DeleteBytes(body, "stream_options")
 	body = normalizeXAITools(body)
 	body = normalizeXAIToolChoiceForTools(body)
+	body = normalizeXAICustomToolHistory(body)
 	var replayScope xaiReasoningReplayScope
 	body, replayScope, err = applyXAIReasoningReplayCacheRequired(ctx, from, req, opts, body)
 	if err != nil {
@@ -1210,6 +1211,83 @@ func normalizeXAIToolChoiceForTools(body []byte) []byte {
 		body, _ = sjson.DeleteBytes(body, "parallel_tool_calls")
 	}
 	return body
+}
+
+func normalizeXAICustomToolHistory(body []byte) []byte {
+	input := gjson.GetBytes(body, "input")
+	if !input.Exists() || !input.IsArray() {
+		return body
+	}
+
+	droppedCallIDs := make(map[string]struct{})
+	for _, item := range input.Array() {
+		if item.Get("type").String() == "custom_tool_call" &&
+			item.Get("name").String() == "apply_patch" {
+			droppedCallIDs[item.Get("call_id").String()] = struct{}{}
+		}
+	}
+
+	changed := false
+	items := make([]json.RawMessage, 0, len(input.Array()))
+	for _, item := range input.Array() {
+		switch item.Get("type").String() {
+		case "custom_tool_call":
+			if _, drop := droppedCallIDs[item.Get("call_id").String()]; drop {
+				changed = true
+				continue
+			}
+			raw := []byte(item.Raw)
+			next, errSet := sjson.SetBytes(raw, "type", "function_call")
+			if errSet != nil {
+				return body
+			}
+			raw = next
+			customInput := item.Get("input")
+			arguments, errMarshal := json.Marshal(map[string]any{"input": customInput.Value()})
+			if errMarshal != nil {
+				return body
+			}
+			next, errSet = sjson.SetBytes(raw, "arguments", string(arguments))
+			if errSet != nil {
+				return body
+			}
+			raw = next
+			if customInput.Exists() {
+				next, errDelete := sjson.DeleteBytes(raw, "input")
+				if errDelete != nil {
+					return body
+				}
+				raw = next
+			}
+			items = append(items, json.RawMessage(raw))
+			changed = true
+		case "custom_tool_call_output":
+			if _, drop := droppedCallIDs[item.Get("call_id").String()]; drop {
+				changed = true
+				continue
+			}
+			next, errSet := sjson.SetBytes([]byte(item.Raw), "type", "function_call_output")
+			if errSet != nil {
+				return body
+			}
+			items = append(items, json.RawMessage(next))
+			changed = true
+		default:
+			items = append(items, json.RawMessage(item.Raw))
+		}
+	}
+	if !changed {
+		return body
+	}
+	rawInput, errMarshal := json.Marshal(items)
+	if errMarshal != nil {
+		return body
+	}
+	updated, errSet := sjson.SetRawBytes(body, "input", rawInput)
+	if errSet != nil {
+		return body
+	}
+	return updated
 }
 
 func normalizeXAITool(tool gjson.Result, namespaceName string) ([]byte, bool, bool) {

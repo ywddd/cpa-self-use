@@ -1238,6 +1238,46 @@ func TestNormalizeXAIToolChoiceForTools_NoOpWhenBothAbsent(t *testing.T) {
 	}
 }
 
+func TestNormalizeXAICustomToolHistory(t *testing.T) {
+	body := []byte(`{"model":"grok-4.5","input":[{"type":"custom_tool_call","call_id":"call_1","name":"shell","input":"echo ok"},{"type":"custom_tool_call_output","call_id":"call_1","output":"done"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
+	out := normalizeXAICustomToolHistory(body)
+
+	if got := gjson.GetBytes(out, "input.0.type").String(); got != "function_call" {
+		t.Fatalf("input.0.type = %q, want function_call; body=%s", got, string(out))
+	}
+	arguments := gjson.GetBytes(out, "input.0.arguments").String()
+	if got := gjson.Get(arguments, "input").String(); got != "echo ok" {
+		t.Fatalf("input.0.arguments.input = %q, want echo ok; body=%s", got, string(out))
+	}
+	if gjson.GetBytes(out, "input.0.input").Exists() {
+		t.Fatalf("input.0.input should be removed; body=%s", string(out))
+	}
+	if got := gjson.GetBytes(out, "input.1.type").String(); got != "function_call_output" {
+		t.Fatalf("input.1.type = %q, want function_call_output; body=%s", got, string(out))
+	}
+	if got := gjson.GetBytes(out, "input.1.output").String(); got != "done" {
+		t.Fatalf("input.1.output = %q, want done; body=%s", got, string(out))
+	}
+	if got := gjson.GetBytes(out, "input.2.type").String(); got != "message" {
+		t.Fatalf("input.2.type = %q, want unchanged message; body=%s", got, string(out))
+	}
+}
+
+func TestNormalizeXAICustomToolHistory_DropsApplyPatchCallAndOutput(t *testing.T) {
+	body := []byte(`{"model":"grok-4.5","input":[{"type":"message","role":"user","content":"edit file"},{"type":"custom_tool_call","call_id":"call_patch","name":"apply_patch","input":"patch body"},{"type":"custom_tool_call_output","call_id":"call_patch","output":"done"},{"type":"message","role":"user","content":"continue"}]}`)
+	out := normalizeXAICustomToolHistory(body)
+
+	if got := len(gjson.GetBytes(out, "input").Array()); got != 2 {
+		t.Fatalf("input length = %d, want 2 after dropping apply_patch history; body=%s", got, string(out))
+	}
+	if got := gjson.GetBytes(out, "input.0.content").String(); got != "edit file" {
+		t.Fatalf("input.0.content = %q, want edit file; body=%s", got, string(out))
+	}
+	if got := gjson.GetBytes(out, "input.1.content").String(); got != "continue" {
+		t.Fatalf("input.1.content = %q, want continue; body=%s", got, string(out))
+	}
+}
+
 func TestXAIExecutorComposerReusesClaudeCodeSession(t *testing.T) {
 	exec := NewXAIExecutor(&config.Config{})
 	auth := &cliproxyauth.Auth{
