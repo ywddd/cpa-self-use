@@ -624,6 +624,9 @@ func (e *XAIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth
 			return nil, errRead
 		}
 		helps.AppendAPIResponseChunk(ctx, e.cfg, data)
+		if httpResp.StatusCode == http.StatusUnprocessableEntity && bytes.Contains(data, []byte("ModelInput")) {
+			helps.LogWithRequestID(ctx).Warnf("xai upstream rejected input shape: %s", xaiInputShapeSummary(prepared.body))
+		}
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
 		return nil, xaiStatusErr(httpResp.StatusCode, data)
 	}
