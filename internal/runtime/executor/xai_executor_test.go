@@ -1278,6 +1278,21 @@ func TestNormalizeXAICustomToolHistory_DropsApplyPatchCallAndOutput(t *testing.T
 	}
 }
 
+func TestNormalizeXAIToolSearchHistory_DropsCallAndOutput(t *testing.T) {
+	body := []byte(`{"model":"grok-4.5","input":[{"type":"message","role":"user","content":"find a tool"},{"type":"tool_search_call","call_id":"call_search","arguments":"{}","execution":"client","status":"completed"},{"type":"tool_search_output","call_id":"call_search","execution":"client","status":"completed","tools":[]},{"type":"message","role":"user","content":"continue"}]}`)
+	out := normalizeXAIToolSearchHistory(body)
+
+	if got := len(gjson.GetBytes(out, "input").Array()); got != 2 {
+		t.Fatalf("input length = %d, want 2 after dropping tool search history; body=%s", got, string(out))
+	}
+	if got := gjson.GetBytes(out, "input.0.content").String(); got != "find a tool" {
+		t.Fatalf("input.0.content = %q, want find a tool; body=%s", got, string(out))
+	}
+	if got := gjson.GetBytes(out, "input.1.content").String(); got != "continue" {
+		t.Fatalf("input.1.content = %q, want continue; body=%s", got, string(out))
+	}
+}
+
 func TestXAIInputShapeSummaryRedactsValues(t *testing.T) {
 	body := []byte(`{"model":"grok-4.5","input":[{"type":"message","role":"user","content":"secret text"},{"type":"unknown_item","call_id":"call_secret","payload":{"token":"hidden"}}]}`)
 	got := xaiInputShapeSummary(body)

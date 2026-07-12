@@ -855,6 +855,7 @@ func (e *XAIExecutor) prepareResponsesRequestTo(ctx context.Context, req cliprox
 	body = normalizeXAITools(body)
 	body = normalizeXAIToolChoiceForTools(body)
 	body = normalizeXAICustomToolHistory(body)
+	body = normalizeXAIToolSearchHistory(body)
 	var replayScope xaiReasoningReplayScope
 	body, replayScope, err = applyXAIReasoningReplayCacheRequired(ctx, from, req, opts, body)
 	if err != nil {
@@ -1277,6 +1278,36 @@ func normalizeXAICustomToolHistory(body []byte) []byte {
 				return body
 			}
 			items = append(items, json.RawMessage(next))
+			changed = true
+		default:
+			items = append(items, json.RawMessage(item.Raw))
+		}
+	}
+	if !changed {
+		return body
+	}
+	rawInput, errMarshal := json.Marshal(items)
+	if errMarshal != nil {
+		return body
+	}
+	updated, errSet := sjson.SetRawBytes(body, "input", rawInput)
+	if errSet != nil {
+		return body
+	}
+	return updated
+}
+
+func normalizeXAIToolSearchHistory(body []byte) []byte {
+	input := gjson.GetBytes(body, "input")
+	if !input.Exists() || !input.IsArray() {
+		return body
+	}
+
+	changed := false
+	items := make([]json.RawMessage, 0, len(input.Array()))
+	for _, item := range input.Array() {
+		switch item.Get("type").String() {
+		case "tool_search_call", "tool_search_output":
 			changed = true
 		default:
 			items = append(items, json.RawMessage(item.Raw))
