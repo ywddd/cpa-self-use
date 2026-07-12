@@ -1278,6 +1278,20 @@ func TestNormalizeXAICustomToolHistory_DropsApplyPatchCallAndOutput(t *testing.T
 	}
 }
 
+func TestXAIInputShapeSummaryRedactsValues(t *testing.T) {
+	body := []byte(`{"model":"grok-4.5","input":[{"type":"message","role":"user","content":"secret text"},{"type":"unknown_item","call_id":"call_secret","payload":{"token":"hidden"}}]}`)
+	got := xaiInputShapeSummary(body)
+
+	if got != `0:type=message,role=user,keys=content|role|type;1:type=unknown_item,keys=call_id|payload|type` {
+		t.Fatalf("xaiInputShapeSummary() = %q", got)
+	}
+	for _, secret := range []string{"secret text", "call_secret", "hidden"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("summary leaked %q: %s", secret, got)
+		}
+	}
+}
+
 func TestXAIExecutorComposerReusesClaudeCodeSession(t *testing.T) {
 	exec := NewXAIExecutor(&config.Config{})
 	auth := &cliproxyauth.Auth{

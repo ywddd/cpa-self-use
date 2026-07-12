@@ -169,6 +169,9 @@ func (e *XAIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req 
 			return resp, errRead
 		}
 		helps.AppendAPIResponseChunk(ctx, e.cfg, data)
+		if httpResp.StatusCode == http.StatusUnprocessableEntity && bytes.Contains(data, []byte("ModelInput")) {
+			helps.LogWithRequestID(ctx).Warnf("xai upstream rejected input shape: %s", xaiInputShapeSummary(prepared.body))
+		}
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
 		return resp, xaiStatusErr(httpResp.StatusCode, data)
 	}
@@ -1288,6 +1291,33 @@ func normalizeXAICustomToolHistory(body []byte) []byte {
 		return body
 	}
 	return updated
+}
+
+func xaiInputShapeSummary(body []byte) string {
+	input := gjson.GetBytes(body, "input")
+	if !input.Exists() {
+		return "input=missing"
+	}
+	if !input.IsArray() {
+		return "input=" + input.Type.String()
+	}
+
+	parts := make([]string, 0, len(input.Array()))
+	for i, item := range input.Array() {
+		fields := make([]string, 0, len(item.Map()))
+		for key := range item.Map() {
+			fields = append(fields, key)
+		}
+		sort.Strings(fields)
+
+		part := fmt.Sprintf("%d:type=%s", i, item.Get("type").String())
+		if role := item.Get("role").String(); role != "" {
+			part += ",role=" + role
+		}
+		part += ",keys=" + strings.Join(fields, "|")
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, ";")
 }
 
 func normalizeXAITool(tool gjson.Result, namespaceName string) ([]byte, bool, bool) {
