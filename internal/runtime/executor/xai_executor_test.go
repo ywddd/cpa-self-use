@@ -1292,6 +1292,30 @@ func TestXAIInputShapeSummaryRedactsValues(t *testing.T) {
 	}
 }
 
+func TestXAIExecuteStreamModelInputError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":"data did not match any variant of untagged enum ModelInput"}`))
+	}))
+	defer server.Close()
+
+	exec := NewXAIExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{
+		Provider:   "xai",
+		Attributes: map[string]string{"base_url": server.URL},
+		Metadata:   map[string]any{"access_token": "xai-token"},
+	}
+	_, err := exec.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "grok-4.5",
+		Payload: []byte(`{"model":"grok-4.5","input":[{"type":"message","role":"user","content":"secret"}]}`),
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FormatOpenAIResponse,
+	})
+	if err == nil {
+		t.Fatal("ExecuteStream() error = nil, want upstream 422 error")
+	}
+}
+
 func TestXAIExecutorComposerReusesClaudeCodeSession(t *testing.T) {
 	exec := NewXAIExecutor(&config.Config{})
 	auth := &cliproxyauth.Auth{
