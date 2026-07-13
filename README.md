@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.67`
+上游基线：`v7.2.71`
 
-自用版本：`v7.2.67-selfuse.20260712`
+自用版本：`v7.2.71-selfuse.20260713.1`
 
 ## 改动概要
 
@@ -18,9 +18,13 @@
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
 
-### XAI custom 工具历史兼容
+### XAI reasoning replay
 
-向 Grok Responses 路由 Codex 会话时，将 `custom_tool_call` 历史转换为 XAI 支持的函数调用格式；对于 XAI 不支持且已过滤的 `apply_patch` 工具，其调用与输出历史会成对移除，避免上游返回 `ModelInput` 反序列化错误。
+合并上游 `v7.2.71` 的加密 reasoning replay：支持 Responses/Claude 会话回放，并包含压缩后清理、调用方隔离、纯工具调用批次保留和歧义注入防护。
+
+### XAI 工具历史兼容
+
+向 Grok Responses 路由 Codex 会话时，将 `custom_tool_call` 历史转换为 XAI 支持的函数调用格式；对于 XAI 不支持且已过滤的 `apply_patch` 工具，其调用与输出历史会成对移除。`tool_search_call` 与 `tool_search_output` 历史也会在发送给 XAI 前移除，避免上游返回 `ModelInput` 反序列化错误。
 
 ### Codex 响应头超时
 
@@ -32,7 +36,7 @@
 
 ### 管理界面增强
 
-该分支保留 auth 文件测试、批量测试和账号测试结果展示等管理界面增强。
+该分支保留 auth 文件测试、批量测试和账号测试结果展示等管理界面增强。简略模式下的认证文件动作区使用独立布局，避免状态文字、开关和测试按钮重叠。
 
 ## 上游关系
 

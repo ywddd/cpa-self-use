@@ -41,3 +41,17 @@ func TestPatchManagementAuthFilesFilters(t *testing.T) {
 		}
 	}
 }
+
+func TestManagementAuthFileTestScriptKeepsCompactCardActionsSeparated(t *testing.T) {
+	for _, want := range [][]byte{
+		[]byte("cpa-auth-files-layout-styles"),
+		[]byte("cpa-auth-actions-enhanced"),
+		[]byte("AuthFilesPage-module__fileCardCompact"),
+		[]byte("grid-template-columns:minmax(0,1fr) auto"),
+		[]byte("ensureAuthFilesLayoutStyles();"),
+	} {
+		if !bytes.Contains(managementAuthFileTestScript, want) {
+			t.Fatalf("management auth script missing compact layout marker %q", want)
+		}
+	}
+}

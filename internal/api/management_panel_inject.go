@@ -151,6 +151,19 @@ var managementAuthFileTestScript = []byte(`<script id="cpa-auth-file-test-ui">
       document;
   }
 
+  function ensureAuthFilesLayoutStyles() {
+    if (document.getElementById("cpa-auth-files-layout-styles")) return;
+    var style = document.createElement("style");
+    style.id = "cpa-auth-files-layout-styles";
+    style.textContent = [
+      '[class*="AuthFilesPage-module__fileCardCompact"] [class*="AuthFilesPage-module__cardActions"].cpa-auth-actions-enhanced{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:8px;row-gap:6px;}',
+      '[class*="AuthFilesPage-module__fileCardCompact"] .cpa-auth-actions-enhanced>[class*="AuthFilesPage-module__cardActionsMain"]{grid-column:1;min-width:0;width:auto;}',
+      '[class*="AuthFilesPage-module__fileCardCompact"] .cpa-auth-actions-enhanced>[class*="AuthFilesPage-module__statusToggle"]{grid-column:2;white-space:nowrap;}',
+      '[class*="AuthFilesPage-module__fileCardCompact"] .cpa-auth-actions-enhanced>.cpa-auth-test-btn{grid-column:1/-1;justify-self:end;margin-left:0!important;}'
+    ].join("");
+    document.head.appendChild(style);
+  }
+
   function cleanupMisplacedButtons() {
     document.querySelectorAll(".cpa-auth-test-btn").forEach(function (button) {
       var row = button.closest("tr,[role='row'],.ant-table-row,.el-table__row");
@@ -162,7 +175,10 @@ var managementAuthFileTestScript = []byte(`<script id="cpa-auth-file-test-ui">
 
   function actionTarget(row) {
     var cardActions = row.querySelector('[class*="AuthFilesPage-module__cardActions"]');
-    if (cardActions) return cardActions;
+    if (cardActions) {
+      cardActions.classList.add("cpa-auth-actions-enhanced");
+      return cardActions;
+    }
     return row.querySelector("td:last-child,[role='cell']:last-child") || row;
   }
 
@@ -346,6 +362,7 @@ var managementAuthFileTestScript = []byte(`<script id="cpa-auth-file-test-ui">
       cleanupMisplacedButtons();
       return;
     }
+    ensureAuthFilesLayoutStyles();
     ensurePageTestButton();
     var scope = authFilesScope();
     var rows = scope.querySelectorAll('tr,[role="row"],.ant-table-row,.el-table__row,[class*="AuthFilesPage-module__fileCard"]');
