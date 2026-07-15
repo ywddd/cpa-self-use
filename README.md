@@ -1,12 +1,12 @@
-# CPA 自用分支
+﻿# CPA 自用分支
 
 这是基于 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 维护的自用分支，用于保留个人场景中的兼容性补丁和运行增强。
 
 ## 当前基线
 
-上游基线：`v7.2.77`
+上游基线：`v7.2.80`
 
-自用版本：`v7.2.77-selfuse.20260715.2`
+自用版本：`v7.2.80-selfuse.20260716.1`
 
 ## 改动概要
 
@@ -17,6 +17,10 @@
 ### 加密 reasoning 降级重试
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
+
+### Codex incomplete stream
+
+合并上游 `v7.2.80` 的 incomplete stream / request-scoped 错误处理：`response.incomplete` 按终端成功处理，避免把可结束的截断流误判为 502。
 
 ### XAI reasoning replay
 
