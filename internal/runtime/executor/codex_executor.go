@@ -1669,10 +1669,11 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 					goto attempt
 				}
 			}
-			reporter.PublishFailure(ctx, errScan)
+			streamErr := newCodexIncompleteStreamError()
+			reporter.PublishFailure(ctx, streamErr)
 			helps.LogWithRequestID(ctx).Warnf("codex stream executor: upstream stream read failed | first_chunk=%t total_elapsed=%s err=%v", firstUpstreamChunk, time.Since(upstreamStarted).Round(time.Millisecond), errScan)
 			select {
-			case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
+			case out <- cliproxyexecutor.StreamChunk{Err: streamErr}:
 			case <-ctx.Done():
 				helps.LogWithRequestID(ctx).Warnf("codex stream executor: downstream context canceled while forwarding stream read error | total_elapsed=%s context_err=%v", time.Since(upstreamStarted).Round(time.Millisecond), ctx.Err())
 			}
