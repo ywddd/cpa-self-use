@@ -1511,9 +1511,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		sawResponseCompleted := false
 		downstreamStarted := false
 		var pendingLines [][]byte
+		terminalSuccess := false
 		sendLine := func(line []byte) bool {
 			translatedLine := bytes.Clone(line)
-			terminalSuccess := false
 
 			if bytes.HasPrefix(line, dataTag) {
 				data := bytes.TrimSpace(line[5:])
@@ -1627,6 +1627,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 					}
 				}
 				pendingLines = nil
+				if terminalSuccess {
+					return
+				}
 				continue
 			}
 
