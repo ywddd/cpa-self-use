@@ -1129,6 +1129,12 @@ func clearCodexReasoningReplayOnRejectedContext(ctx context.Context, scope codex
 	return nil
 }
 
+// clearCodexReasoningReplayOnInvalidSignature keeps the upstream websocket call sites working
+// while reusing the broader self-use rejected-context cleanup path.
+func clearCodexReasoningReplayOnInvalidSignature(ctx context.Context, scope codexReasoningReplayScope, statusCode int, body []byte) error {
+	return clearCodexReasoningReplayOnRejectedContext(ctx, scope, statusCode, body)
+}
+
 // PrepareRequest injects Codex credentials into the outgoing HTTP request.
 func (e *CodexExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if req == nil {
