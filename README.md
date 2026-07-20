@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.90`
+上游基线：`v7.2.92`
 
-自用版本：`v7.2.90-selfuse.20260719.3`
+自用版本：`v7.2.92-selfuse.20260720.1`
 
 ## 改动概要
 
@@ -17,6 +17,11 @@
 ### 加密 reasoning 降级重试
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
+
+### 上游 v7.2.91 / v7.2.92
+
+- v7.2.91：过长 encrypted reasoning ID 发送前丢弃，其它过长 input item ID 确定性截短。
+- v7.2.92：`GetGJSONBytesNoCopy` 与 payload `Set*IfDifferent` 等性能优化。
 
 ### Codex incomplete stream
 
