@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.92`
+上游基线：`v7.2.94`
 
-自用版本：`v7.2.92-selfuse.20260720.1`
+自用版本：`v7.2.94-selfuse.20260722.1`
 
 ## 改动概要
 
@@ -18,10 +18,13 @@
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
 
-### 上游 v7.2.91 / v7.2.92
+### 上游 v7.2.91 / v7.2.92 / v7.2.93 / v7.2.94
 
 - v7.2.91：过长 encrypted reasoning ID 发送前丢弃，其它过长 input item ID 确定性截短。
 - v7.2.92：`GetGJSONBytesNoCopy` 与 payload `Set*IfDifferent` 等性能优化。
+- v7.2.93：WebSocket 上游 1009 按请求级错误透传（不换号/cooldown）；docker-compose 插件目录挂载。
+- v7.2.94：管理 API 按 name/auth_index 过滤认证文件；插件 stream bridge close/send 竞态修复。
+
 
 ### Codex incomplete stream
 
