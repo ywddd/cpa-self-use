@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.95`
+上游基线：`v7.2.97`
 
-自用版本：`v7.2.95-selfuse.20260723.1`
+自用版本：`v7.2.97-selfuse.20260724.1`
 
 ## 改动概要
 
@@ -18,13 +18,15 @@
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
 
-### 上游 v7.2.91 ~ v7.2.95
+### 上游 v7.2.91 ~ v7.2.97
 
 - v7.2.91：过长 encrypted reasoning ID 发送前丢弃，其它过长 input item ID 确定性截短。
 - v7.2.92：`GetGJSONBytesNoCopy` 与 payload `Set*IfDifferent` 等性能优化。
 - v7.2.93：WebSocket 上游 1009 按请求级错误透传（不换号/cooldown）；docker-compose 插件目录挂载。
 - v7.2.94：管理 API 按 name/auth_index 过滤认证文件；插件 stream bridge close/send 竞态修复。
 - v7.2.95：Codex Alpha Search 模型路由；Claude 输入 token 估算；XAI token 计数优化（O200k）；OpenAI translator tools 字段优化。
+- v7.2.96：Home 凭据并发（credential concurrency / in-flight）支持。
+- v7.2.97：Responses WebSocket 上下文连续性（含 XAI compacted transcript）；usage token 规范化记账 v2。
 
 
 ### Codex incomplete stream
@@ -319,6 +321,10 @@ A PowerShell-based Windows system tray launcher for CLIProxyAPI. It supports run
 ### [Grok Search MCP](https://github.com/MapleMapleCat/Grok_Search_Mcp)
 
 An HTTP-only Model Context Protocol server that uses a CLIProxyAPI deployment to provide Grok-powered real-time web search, X/Twitter search, and model discovery to MCP clients. It adds MCP transport, client API-key management, quotas, usage tracking, and a web administration panel.
+
+### [AIUsage](https://github.com/sylearn/AIUsage)
+
+Native macOS SwiftUI dashboard for AI subscriptions and coding proxies. It manages official CLIProxyAPI releases end to end (download, verify, supervise, update, and roll back), unifies OAuth accounts and live models, and connects one gateway to Codex, Claude Code/Science, OpenCode, or OpenAI/Anthropic/Gemini clients, with optional LAN access.
 
 > [!NOTE]  
 > If you developed a project based on CLIProxyAPI, please open a PR to add it to this list.
