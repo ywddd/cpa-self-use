@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.97`
+上游基线：`v7.2.98`
 
-自用版本：`v7.2.97-selfuse.20260724.1`
+自用版本：`v7.2.98-selfuse.20260725.1`
 
 ## 改动概要
 
@@ -18,7 +18,7 @@
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
 
-### 上游 v7.2.91 ~ v7.2.97
+### 上游 v7.2.91 ~ v7.2.98
 
 - v7.2.91：过长 encrypted reasoning ID 发送前丢弃，其它过长 input item ID 确定性截短。
 - v7.2.92：`GetGJSONBytesNoCopy` 与 payload `Set*IfDifferent` 等性能优化。
@@ -27,6 +27,7 @@
 - v7.2.95：Codex Alpha Search 模型路由；Claude 输入 token 估算；XAI token 计数优化（O200k）；OpenAI translator tools 字段优化。
 - v7.2.96：Home 凭据并发（credential concurrency / in-flight）支持。
 - v7.2.97：Responses WebSocket 上下文连续性（含 XAI compacted transcript）；usage token 规范化记账 v2。
+- v7.2.98：Codex Multi-Agent V2 优化（`optimize-multi-agent-v2`，默认关闭）；credential concurrency / sentinel 测试整理。
 
 
 ### Codex incomplete stream
