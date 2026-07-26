@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1161,139 +1162,6 @@ func TestExecuteStreamWithAuthManager_AllowsSplitOpenAIResponsesSSEEventLines(t 
 type contextTooLargeFreeStreamExecutor struct {
 	mu      sync.Mutex
 	authIDs []string
-}
-
-type invalidJSONStreamExecutor struct{}
-
-type splitResponsesEventStreamExecutor struct{}
-
-func (e *invalidJSONStreamExecutor) Identifier() string { return "codex" }
-
-func (e *invalidJSONStreamExecutor) Execute(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "Execute not implemented"}
-}
-
-func (e *invalidJSONStreamExecutor) ExecuteStream(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (*coreexecutor.StreamResult, error) {
-	ch := make(chan coreexecutor.StreamChunk, 1)
-	ch <- coreexecutor.StreamChunk{Payload: []byte("event: response.completed\ndata: {\"type\"")}
-	close(ch)
-	return &coreexecutor.StreamResult{Chunks: ch}, nil
-}
-
-func (e *invalidJSONStreamExecutor) Refresh(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
-	return auth, nil
-}
-
-func (e *invalidJSONStreamExecutor) CountTokens(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "CountTokens not implemented"}
-}
-
-func (e *invalidJSONStreamExecutor) HttpRequest(ctx context.Context, auth *coreauth.Auth, req *http.Request) (*http.Response, error) {
-	return nil, &coreauth.Error{
-		Code:       "not_implemented",
-		Message:    "HttpRequest not implemented",
-		HTTPStatus: http.StatusNotImplemented,
-	}
-}
-
-func (e *splitResponsesEventStreamExecutor) Identifier() string { return "split-sse" }
-
-func (e *splitResponsesEventStreamExecutor) Execute(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "Execute not implemented"}
-}
-
-func (e *splitResponsesEventStreamExecutor) ExecuteStream(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (*coreexecutor.StreamResult, error) {
-	ch := make(chan coreexecutor.StreamChunk, 2)
-	ch <- coreexecutor.StreamChunk{Payload: []byte("event: response.completed")}
-	ch <- coreexecutor.StreamChunk{Payload: []byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\",\"output\":[]}}")}
-	close(ch)
-	return &coreexecutor.StreamResult{Chunks: ch}, nil
-}
-
-func (e *splitResponsesEventStreamExecutor) Refresh(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
-	return auth, nil
-}
-
-func (e *splitResponsesEventStreamExecutor) CountTokens(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "CountTokens not implemented"}
-}
-
-func (e *splitResponsesEventStreamExecutor) HttpRequest(ctx context.Context, auth *coreauth.Auth, req *http.Request) (*http.Response, error) {
-	return nil, &coreauth.Error{
-		Code:       "not_implemented",
-		Message:    "HttpRequest not implemented",
-		HTTPStatus: http.StatusNotImplemented,
-	}
-}
-
-func (e *authAwareStreamExecutor) Identifier() string { return "codex" }
-
-func (e *authAwareStreamExecutor) Execute(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "Execute not implemented"}
-}
-
-func (e *authAwareStreamExecutor) ExecuteStream(ctx context.Context, auth *coreauth.Auth, req coreexecutor.Request, opts coreexecutor.Options) (*coreexecutor.StreamResult, error) {
-	_ = ctx
-	_ = req
-	_ = opts
-	ch := make(chan coreexecutor.StreamChunk, 1)
-
-	authID := ""
-	if auth != nil {
-		authID = auth.ID
-	}
-
-	e.mu.Lock()
-	e.calls++
-	e.authIDs = append(e.authIDs, authID)
-	e.mu.Unlock()
-
-	if authID == "auth1" {
-		ch <- coreexecutor.StreamChunk{
-			Err: &coreauth.Error{
-				Code:       "unauthorized",
-				Message:    "unauthorized",
-				Retryable:  false,
-				HTTPStatus: http.StatusUnauthorized,
-			},
-		}
-		close(ch)
-		return &coreexecutor.StreamResult{Chunks: ch}, nil
-	}
-
-	ch <- coreexecutor.StreamChunk{Payload: []byte("ok")}
-	close(ch)
-	return &coreexecutor.StreamResult{Chunks: ch}, nil
-}
-
-func (e *authAwareStreamExecutor) Refresh(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
-	return auth, nil
-}
-
-func (e *authAwareStreamExecutor) CountTokens(context.Context, *coreauth.Auth, coreexecutor.Request, coreexecutor.Options) (coreexecutor.Response, error) {
-	return coreexecutor.Response{}, &coreauth.Error{Code: "not_implemented", Message: "CountTokens not implemented"}
-}
-
-func (e *authAwareStreamExecutor) HttpRequest(ctx context.Context, auth *coreauth.Auth, req *http.Request) (*http.Response, error) {
-	return nil, &coreauth.Error{
-		Code:       "not_implemented",
-		Message:    "HttpRequest not implemented",
-		HTTPStatus: http.StatusNotImplemented,
-	}
-}
-
-func (e *authAwareStreamExecutor) Calls() int {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.calls
-}
-
-func (e *authAwareStreamExecutor) AuthIDs() []string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	out := make([]string, len(e.authIDs))
-	copy(out, e.authIDs)
-	return out
 }
 
 func (e *contextTooLargeFreeStreamExecutor) Identifier() string { return "codex" }
