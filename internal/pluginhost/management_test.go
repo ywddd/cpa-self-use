@@ -274,3 +274,93 @@ type managementHandlerFunc func(context.Context, pluginapi.ManagementRequest) (p
 func (f managementHandlerFunc) HandleManagement(ctx context.Context, req pluginapi.ManagementRequest) (pluginapi.ManagementResponse, error) {
 	return f(ctx, req)
 }
+
+func TestServeManagementHTTPInjectsRequestHostHeader(t *testing.T) {
+	var sawHost string
+	host := newHostWithRecords(capabilityRecord{
+		id: "host-inject",
+		plugin: pluginapi.Plugin{Capabilities: pluginapi.Capabilities{
+			ManagementAPI: &managementPluginDouble{routes: []pluginapi.ManagementRoute{{
+				Method: http.MethodGet,
+				Path:   "/plugins/host-inject/status",
+				Handler: managementHandlerFunc(func(_ context.Context, req pluginapi.ManagementRequest) (pluginapi.ManagementResponse, error) {
+					// Go keeps the wire Host on r.Host, not r.Header. Plugins only
+					// see Headers, so the host must inject the trusted value.
+					if req.Headers == nil {
+						t.Fatal("headers is nil")
+					}
+					sawHost = req.Headers.Get("Host")
+					return pluginapi.ManagementResponse{Body: []byte("ok")}, nil
+				}),
+			}}},
+		}},
+	})
+	host.RegisterManagementRoutes(context.Background(), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "http://cpa.example.com:1109/v0/management/plugins/host-inject/status", nil)
+	// Mimic net/http: Host lives on the request, not in Header.
+	req.Host = "cpa.example.com:1109"
+	req.Header.Del("Host")
+	req.Header.Set("Origin", "https://attacker.example:443")
+	req.Header.Set("X-Forwarded-Host", "attacker.example:443")
+
+	rec := httptest.NewRecorder()
+	if !host.ServeManagementHTTP(rec, req) {
+		t.Fatal("ServeManagementHTTP() = false, want true")
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if sawHost != "cpa.example.com:1109" {
+		t.Fatalf("plugin Host header = %q, want injected r.Host", sawHost)
+	}
+}
+
+func TestServeResourceHTTPInjectsRequestHostHeader(t *testing.T) {
+	var sawHost string
+	host := newHostWithRecords(capabilityRecord{
+		id: "resource-host",
+		plugin: pluginapi.Plugin{Capabilities: pluginapi.Capabilities{
+			ManagementAPI: &managementPluginDouble{resources: []pluginapi.ResourceRoute{{
+				Path: "/status",
+				Handler: managementHandlerFunc(func(_ context.Context, req pluginapi.ManagementRequest) (pluginapi.ManagementResponse, error) {
+					sawHost = ""
+					if req.Headers != nil {
+						sawHost = req.Headers.Get("Host")
+					}
+					return pluginapi.ManagementResponse{
+						Headers: http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+						Body:    []byte("<html>ok</html>"),
+					}, nil
+				}),
+			}}},
+		}},
+	})
+	host.RegisterManagementRoutes(context.Background(), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:19090/v0/resource/plugins/resource-host/status", nil)
+	req.Host = "127.0.0.1:19090"
+	req.Header.Del("Host")
+
+	rec := httptest.NewRecorder()
+	if !host.ServeResourceHTTP(rec, req) {
+		t.Fatal("ServeResourceHTTP() = false, want true")
+	}
+	if sawHost != "127.0.0.1:19090" {
+		t.Fatalf("resource Host header = %q, want injected r.Host", sawHost)
+	}
+}
+
+func TestManagementRequestHeadersPrefersRequestHost(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.test:8080/x", nil)
+	req.Host = "example.test:8080"
+	req.Header.Set("Host", "spoofed.example:1")
+	req.Header.Set("X-Forwarded-Host", "attacker.example")
+	headers := managementRequestHeaders(req)
+	if got := headers.Get("Host"); got != "example.test:8080" {
+		t.Fatalf("Host = %q, want authoritative r.Host", got)
+	}
+	if got := headers.Get("X-Forwarded-Host"); got != "attacker.example" {
+		t.Fatalf("X-Forwarded-Host should pass through unchanged: %q", got)
+	}
+}

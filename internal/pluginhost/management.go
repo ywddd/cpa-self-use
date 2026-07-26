@@ -225,6 +225,29 @@ func managementRouteKey(method, path string) string {
 	return strings.ToUpper(strings.TrimSpace(method)) + " " + strings.TrimSpace(path)
 }
 
+// managementRequestHeaders clones request headers and injects the authoritative
+// request host from r.Host. net/http does not place Host in r.Header, so without
+// this injection plugins cannot observe the management listen port (e.g. custom
+// CPA port) from ManagementRequest.Headers alone.
+//
+// Only r.Host is used. Origin / X-Forwarded-* are intentionally left untouched
+// for plugins that choose their own transport fallback policy.
+func managementRequestHeaders(r *http.Request) http.Header {
+	if r == nil {
+		return nil
+	}
+	headers := cloneHeader(r.Header)
+	host := strings.TrimSpace(r.Host)
+	if host == "" {
+		return headers
+	}
+	if headers == nil {
+		headers = make(http.Header)
+	}
+	headers.Set("Host", host)
+	return headers
+}
+
 // ServeManagementHTTP dispatches an authenticated Management API request to a plugin route.
 func (h *Host) ServeManagementHTTP(w http.ResponseWriter, r *http.Request) bool {
 	if h == nil || w == nil || r == nil || r.URL == nil {
@@ -255,7 +278,7 @@ func (h *Host) ServeManagementHTTP(w http.ResponseWriter, r *http.Request) bool 
 	resp, errHandle := h.callManagementHandler(r.Context(), record, pluginapi.ManagementRequest{
 		Method:  r.Method,
 		Path:    r.URL.Path,
-		Headers: cloneHeader(r.Header),
+		Headers: managementRequestHeaders(r),
 		Query:   cloneValues(r.URL.Query()),
 		Body:    bytes.Clone(body),
 	})
@@ -301,7 +324,7 @@ func (h *Host) ServeResourceHTTP(w http.ResponseWriter, r *http.Request) bool {
 	resp, errHandle := h.callResourceHandler(r.Context(), record, pluginapi.ManagementRequest{
 		Method:  http.MethodGet,
 		Path:    r.URL.Path,
-		Headers: cloneHeader(r.Header),
+		Headers: managementRequestHeaders(r),
 		Query:   cloneValues(r.URL.Query()),
 	})
 	if errHandle != nil {
