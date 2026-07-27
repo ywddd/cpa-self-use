@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.101`
+上游基线：`v7.2.102`
 
-自用版本：`v7.2.101-selfuse.20260726.1`
+自用版本：`v7.2.102-selfuse.20260727.1`
 
 ## 改动概要
 
@@ -18,7 +18,7 @@
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
 
-### 上游 v7.2.91 ~ v7.2.101
+### 上游 v7.2.91 ~ v7.2.102
 
 - v7.2.91：过长 encrypted reasoning ID 发送前丢弃，其它过长 input item ID 确定性截短。
 - v7.2.92：`GetGJSONBytesNoCopy` 与 payload `Set*IfDifferent` 等性能优化。
@@ -31,6 +31,7 @@
 - v7.2.99：Codex Live 会话（WebRTC 媒体中继、TCP proxy）；Codex 与 Claude 客户端模型目录。
 - v7.2.100：Windows 插件响应缓冲修复；Antigravity 完整 reasoning 重放；Claude 响应重复 delta 修复；deferred tools 跳过 `cache_control`；新增 Claude Opus 5 与 Gemini 3.6 Flash。
 - v7.2.101：xAI executor 输出控制增强；Codex 流式翻译保持单 thinking block；cloaking 提示注入时保持 `tool_result` 在前；派生会话身份；pluginhost 与大文件拆分重构。
+- v7.2.102：xAI 可配置注入 x_search；PostgreSQL cooldown 持久化；工具名冲突处理；OpenAI [DONE]/completion 状态修复；Claude 本地 token 估算与 OAuth SSE 工具名恢复；Codex replay 指纹 O(n) 优化；SDK 保留自定义 executor。
 
 
 ### Codex incomplete stream
