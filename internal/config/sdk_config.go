@@ -45,6 +45,9 @@ type SDKConfig struct {
 	// CodexOptimizeMultiAgentV2 mirrors the provider-wide runtime setting for API handlers.
 	CodexOptimizeMultiAgentV2 bool `yaml:"-" json:"-"`
 
+	// ClaudeCode configures Claude Code compatibility behavior.
+	ClaudeCode ClaudeCodeConfig `yaml:"claude-code" json:"claude-code"`
+
 	// APIKeys is a list of keys for authenticating clients to this proxy server.
 	APIKeys []string `yaml:"api-keys" json:"api-keys"`
 
@@ -63,6 +66,12 @@ type SDKConfig struct {
 	// for upstream response headers. The stream body is not time-limited after headers arrive.
 	// 0 uses the default. A negative value disables this timeout.
 	CodexResponseHeaderTimeoutSeconds int `yaml:"codex-response-header-timeout-seconds,omitempty" json:"codex-response-header-timeout-seconds,omitempty"`
+}
+
+// ClaudeCodeConfig configures Claude Code compatibility behavior.
+type ClaudeCodeConfig struct {
+	// DisableCloakingModelList disables model ID cloaking in Anthropic model list responses.
+	DisableCloakingModelList bool `yaml:"disable-cloaking-model-list" json:"disable-cloaking-model-list"`
 }
 
 // StreamingConfig holds server streaming behavior configuration.
