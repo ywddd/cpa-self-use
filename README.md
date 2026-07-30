@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.110`
+上游基线：`v7.2.111`
 
-自用版本：`v7.2.110-selfuse.20260730.1`
+自用版本：`v7.2.111-selfuse.20260731.1`
 
 ## 改动概要
 
@@ -18,7 +18,7 @@
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
 
-### 上游 v7.2.91 ~ v7.2.110
+### 上游 v7.2.91 ~ v7.2.111
 
 - v7.2.91：过长 encrypted reasoning ID 发送前丢弃，其它过长 input item ID 确定性截短。
 - v7.2.92：`GetGJSONBytesNoCopy` 与 payload `Set*IfDifferent` 等性能优化。
@@ -40,6 +40,7 @@
 - v7.2.108：认证文件支持解析凭据权重。
 - v7.2.109：简化 Codex 模型选择，未显式配置时恢复默认 Codex Pro 模型。
 - v7.2.110：新增 `disable-codex-cloaking`，可关闭 Codex `User-Agent` 和 `Originator` 请求头伪装，并完善配置热更新检测。
+- v7.2.111：Home OAuth 凭据遇到 401 时自动刷新恢复，避免凭据过早进入冷却；新增 Kimi K3 256K 模型配置。
 
 
 ### Codex incomplete stream
