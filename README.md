@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.103`
+上游基线：`v7.2.110`
 
-自用版本：`v7.2.103-selfuse.20260728.1`
+自用版本：`v7.2.110-selfuse.20260730.1`
 
 ## 改动概要
 
@@ -18,7 +18,7 @@
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
 
-### 上游 v7.2.91 ~ v7.2.103
+### 上游 v7.2.91 ~ v7.2.110
 
 - v7.2.91：过长 encrypted reasoning ID 发送前丢弃，其它过长 input item ID 确定性截短。
 - v7.2.92：`GetGJSONBytesNoCopy` 与 payload `Set*IfDifferent` 等性能优化。
@@ -33,6 +33,13 @@
 - v7.2.101：xAI executor 输出控制增强；Codex 流式翻译保持单 thinking block；cloaking 提示注入时保持 `tool_result` 在前；派生会话身份；pluginhost 与大文件拆分重构。
 - v7.2.102：xAI 可配置注入 x_search；PostgreSQL cooldown 持久化；工具名冲突处理；OpenAI [DONE]/completion 状态修复；Claude 本地 token 估算与 OAuth SSE 工具名恢复；Codex replay 指纹 O(n) 优化；SDK 保留自定义 executor。
 - v7.2.103：会话亲和性优先原生 session 信号；Claude 可关 model list cloaking；工具 input schema 规范化与 input_image 解析；OpenAI response_format 映射 Gemini；Gemini 3.1/3.5/3.6 元数据；Codex minimal reasoning；request lifecycle 插件；auth 文件删除保护。
+- v7.2.104：凭据权重校验与加权轮询；请求客户端 IP、User-Agent 等元数据向插件传递；Home 集群接管与恢复逻辑增强。
+- v7.2.105：Claude 请求中连续 tool result 合并；Codex/Claude 函数调用翻译重构；Antigravity schema 和响应格式兼容增强。
+- v7.2.106：JSON Schema 清理改为结构化选项；停止强制注入 Codex 内置模型 ID。
+- v7.2.107：Codex 模型解析与凭据校验修复；`json_schema` / `json_object` 响应格式修复；Git 存储库损坏恢复增强。
+- v7.2.108：认证文件支持解析凭据权重。
+- v7.2.109：简化 Codex 模型选择，未显式配置时恢复默认 Codex Pro 模型。
+- v7.2.110：新增 `disable-codex-cloaking`，可关闭 Codex `User-Agent` 和 `Originator` 请求头伪装，并完善配置热更新检测。
 
 
 ### Codex incomplete stream
