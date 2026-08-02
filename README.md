@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.112`
+上游基线：`v7.2.113`
 
-自用版本：`v7.2.112-selfuse.20260731.1`
+自用版本：`v7.2.113-selfuse.20260802.1`
 
 ## 改动概要
 
@@ -18,7 +18,7 @@
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
 
-### 上游 v7.2.91 ~ v7.2.112
+### 上游 v7.2.91 ~ v7.2.113
 
 - v7.2.91：过长 encrypted reasoning ID 发送前丢弃，其它过长 input item ID 确定性截短。
 - v7.2.92：`GetGJSONBytesNoCopy` 与 payload `Set*IfDifferent` 等性能优化。
@@ -42,6 +42,7 @@
 - v7.2.110：新增 `disable-codex-cloaking`，可关闭 Codex `User-Agent` 和 `Originator` 请求头伪装，并完善配置热更新检测。
 - v7.2.111：Home OAuth 凭据遇到 401 时自动刷新恢复，避免凭据过早进入冷却；新增 Kimi K3 256K 模型配置。
 - v7.2.112：回退 v7.2.111 的 Home 401 刷新恢复；新增 thinking summary 跨协议可见性转换体系，统一 Claude/Gemini/Antigravity/Interactions 之间的 reasoning summary 处理。
+- v7.2.113：Codex WebSocket cloaking 请求头对齐；OpenAI-compatible 新增 support-prompt-cache-key；Claude fast mode beta 条件支持；OpenAI 结构化工具输出响应增强；Codex Alpha Search API key 可配置端点；Kimi Thinking Replay 缓存与连续性机制。
 
 
 ### Codex incomplete stream
