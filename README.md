@@ -1,12 +1,12 @@
-﻿# CPA 自用分支
+# CPA 自用分支
 
 这是基于 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 维护的自用分支，用于保留个人场景中的兼容性补丁和运行增强。
 
 ## 当前基线
 
-上游基线：`v7.2.113`
+上游基线：`v7.2.115`
 
-自用版本：`v7.2.113-selfuse.20260802.1`
+自用版本：`v7.2.115-selfuse.20260802.1`
 
 ## 改动概要
 
@@ -18,7 +18,7 @@
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
 
-### 上游 v7.2.91 ~ v7.2.113
+### 上游 v7.2.91 ~ v7.2.115
 
 - v7.2.91：过长 encrypted reasoning ID 发送前丢弃，其它过长 input item ID 确定性截短。
 - v7.2.92：`GetGJSONBytesNoCopy` 与 payload `Set*IfDifferent` 等性能优化。
@@ -43,6 +43,8 @@
 - v7.2.111：Home OAuth 凭据遇到 401 时自动刷新恢复，避免凭据过早进入冷却；新增 Kimi K3 256K 模型配置。
 - v7.2.112：回退 v7.2.111 的 Home 401 刷新恢复；新增 thinking summary 跨协议可见性转换体系，统一 Claude/Gemini/Antigravity/Interactions 之间的 reasoning summary 处理。
 - v7.2.113：Codex WebSocket cloaking 请求头对齐；OpenAI-compatible 新增 support-prompt-cache-key；Claude fast mode beta 条件支持；OpenAI 结构化工具输出响应增强；Codex Alpha Search API key 可配置端点；Kimi Thinking Replay 缓存与连续性机制。
+- v7.2.114：修复 Home client 空闲连接未安全关闭的问题；Codex/Claude token 刷新路径增加有界超时；Codex 输入清理规范化无效 sub2api 消息 item ID；Codex 支持按模型配置 max-context-length 覆盖。
+- v7.2.115：translator 多项修复——finish_reason 缺失时流结束发出 response.completed、保留非对象 Claude tool inputs、保留内容块顺序、function call stream 事件幂等化、Gemini snake_case usage 兼容；OpenAI 工具结果规范化以兼容纯文本模型；处理加密 collaboration message schema。
 
 
 ### Codex incomplete stream
