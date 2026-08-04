@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.115`
+上游基线：`v7.2.116`
 
-自用版本：`v7.2.115-selfuse.20260802.1`
+自用版本：`v7.2.116-selfuse.20260804.1`
 
 ## 改动概要
 
@@ -17,6 +17,13 @@
 ### 加密 reasoning 降级重试
 
 当上游拒绝 `input[*].encrypted_content`，或返回 stale reasoning item 相关错误时，该分支会移除无效 reasoning 上下文并重试一次。
+
+### 上游 v7.2.116
+
+- Home OAuth 遇到上游 401 时自动刷新凭据并重试，增强凭据禁用、刷新后重新准备和并发选择逻辑。
+- Claude OAuth 身份、TLS、请求头伪装、fast mode、诊断、签名和 Responses reasoning chain 全面重构。
+- Codex 补齐缺失的 `response.completed` 输出项 ID；Antigravity 清理 `propertyNames` schema；HTTP partial write 状态得以保留。
+- 新增 Claude/Home/HTTP 等相关回归测试，并增强 token fingerprint、usage 和 OAuth wire 行为。
 
 ### 上游 v7.2.91 ~ v7.2.115
 
