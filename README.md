@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-上游基线：`v7.2.116`
+上游基线：`v7.2.122`
 
-自用版本：`v7.2.116-selfuse.20260804.1`
+自用版本：`v7.2.122-selfuse.20260807.1`
 
 ## 改动概要
 
@@ -24,6 +24,15 @@
 - Claude OAuth 身份、TLS、请求头伪装、fast mode、诊断、签名和 Responses reasoning chain 全面重构。
 - Codex 补齐缺失的 `response.completed` 输出项 ID；Antigravity 清理 `propertyNames` schema；HTTP partial write 状态得以保留。
 - 新增 Claude/Home/HTTP 等相关回归测试，并增强 token fingerprint、usage 和 OAuth wire 行为。
+
+### 上游 v7.2.117 ~ v7.2.122
+
+- v7.2.117：Responses 补充 `reasoning_tokens` 输出；Codex/Claude 转换修复；Multi-Agent V2 工具定义和 `multi_agent_version=v2`。
+- v7.2.118：Grok Imagine Video 1.5 GA；Grok Shell 相关模型路由；Antigravity 敏感词伪装；prepared route skip 修复。
+- v7.2.119：OpenAI 流式 `[DONE]` 后丢弃多余分块；README 增加 EasyCLIProxyAPI 推荐。
+- v7.2.120：XAI 客户端版本提升并加入 Grok Shell 认证头；Responses 自定义工具调用和命名冲突处理。
+- v7.2.121：凭据冷却与失败分类优化，客户端错误不惩罚凭据；Claude/Responses 连续轮次合并；is-compat 与 thinking summary 改进。
+- v7.2.122：Codex input item ID 规范化；is-compat 模型保留 Claude thinking/工具调用内容。
 
 ### 上游 v7.2.91 ~ v7.2.115
 
