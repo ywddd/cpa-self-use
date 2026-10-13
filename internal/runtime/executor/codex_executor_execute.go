@@ -7,18 +7,19 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/thinking"
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
-	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/thinking"
+	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
+	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
 func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
+	ctx = helps.EnsureSessionContext(ctx, opts, req.Payload)
 	if opts.Alt == "responses/compact" {
 		return e.executeCompact(ctx, auth, req, opts)
 	}
@@ -28,6 +29,9 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
 
 	apiKey, baseURL := codexCreds(auth)
+	if errSIWC := ensureCodexSIWCCredentials(auth, apiKey); errSIWC != nil {
+		return resp, errSIWC
+	}
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 	}
@@ -43,16 +47,18 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
-	originalTranslated, body := translateCodexRequestPair(from, to, baseModel, originalPayload, req.Payload, false, helps.APIKeyModelIsCompat(req))
-
-	body, err = helps.ApplyRequestThinking(body, req, opts, from.String(), to.String(), e.Identifier())
+	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
+	originalTranslated, body, updatesChanged, err := translateCodexRequestPairWithUpdateIntent(from, to, baseModel, originalPayload, req.Payload, false, isCompat)
 	if err != nil {
 		return resp, err
 	}
 
-	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
-	requestPath := helps.PayloadRequestPath(opts)
-	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
+	body, err = helps.ApplyRequestThinking(body, req, opts, from.String(), to.String(), e.Identifier(), updatesChanged)
+	if err != nil {
+		return resp, err
+	}
+
+	ctx = helps.WithPayloadFinalizer(ctx, helps.NewPayloadFinalizer(e.cfg, e.Identifier(), baseModel, to.String(), "", originalTranslated, req, opts))
 	body = helps.SetStringIfDifferent(body, "model", baseModel)
 	body = helps.SetBoolIfDifferent(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
@@ -60,28 +66,34 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
 	body, _ = sjson.DeleteBytes(body, "safety_identifier")
 	body, _ = sjson.DeleteBytes(body, "stream_options")
-	body = normalizeCodexInstructions(body)
-	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
-		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
+	useSIWC := codexUseSIWC(auth)
+	hasExplicitInstructions := gjson.GetBytes(req.Payload, "instructions").Exists() && strings.TrimSpace(gjson.GetBytes(req.Payload, "instructions").String()) != ""
+	if !useSIWC {
+		body = normalizeCodexInstructions(body, helps.IsNativeCodexRequest(req.Payload, opts))
+		if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
+			body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
+		}
+	} else {
+		body = applyCodexSIWCRequestBodyRules(body, hasExplicitInstructions)
 	}
-	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex executor", body)
+	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, isCompat)
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
-	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
+	body = helps.NormalizeCodexToolSchemas(body)
+	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, isCompat)
 	body, replayScope, errReplay := applyCodexReasoningReplayCacheRequired(ctx, from, req, opts, body)
 	if errReplay != nil {
 		return resp, errReplay
 	}
-	reporter.SetTranslatedReasoningEffort(body, to.String())
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
-	var identityState codexIdentityConfuseState
-	httpReq, upstreamBody, identityState, err := e.cacheHelper(ctx, from, url, auth, req, originalPayloadSource, body, opts.Headers)
+	httpReq, upstreamBody, err := e.cacheHelper(ctx, from, url, req, body, opts.Headers)
 	if err != nil {
 		return resp, err
 	}
-	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg)
+	reporter.SetTranslatedReasoningEffort(upstreamBody, to.String())
+	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg, opts.Headers)
+	applyCodexRoutingHint(ctx, httpReq.Header, auth, baseModel, upstreamBody, opts.Headers)
 	applyModelHeaderOverrides(httpReq.Header, baseModel)
-	applyCodexIdentityConfuseHeaders(httpReq.Header, &identityState)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -99,9 +111,9 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		AuthType:  authType,
 		AuthValue: authValue,
 	})
-	httpClient := newCodexHTTPClient(ctx, e.cfg, auth)
+	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
 	httpClient = reporter.TrackHTTPClient(httpClient)
-	httpResp, err := doCodexRequestWithHeaderTimeout(httpClient, httpReq, codexHeaderTimeout(e.cfg))
+	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
 		return resp, err
@@ -114,73 +126,21 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	helps.RecordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		b, _ := io.ReadAll(httpResp.Body)
-		b = applyCodexIdentityConfuseResponsePayload(b, identityState)
 		if errClearReplay := clearCodexReasoningReplayOnInvalidSignature(ctx, replayScope, httpResp.StatusCode, b); errClearReplay != nil {
 			return resp, errClearReplay
 		}
 		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
-		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, b) {
-			if strippedBody, changed := stripReasoningContextForRetry(body, b); changed {
-				helps.LogWithRequestID(ctx).Warn("codex executor: retrying once without encrypted reasoning context after upstream request error")
-				retryReq, retryUpstreamBody, retryIdentityState, retryBuildErr := e.cacheHelper(ctx, from, url, auth, req, originalPayloadSource, strippedBody, opts.Headers)
-				if retryBuildErr != nil {
-					err = retryBuildErr
-					return resp, err
-				}
-				applyCodexHeaders(retryReq, auth, apiKey, true, e.cfg)
-				applyModelHeaderOverrides(retryReq.Header, baseModel)
-				applyCodexIdentityConfuseHeaders(retryReq.Header, &retryIdentityState)
-				helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
-					URL:       url,
-					Method:    http.MethodPost,
-					Headers:   retryReq.Header.Clone(),
-					Body:      retryUpstreamBody,
-					Provider:  e.Identifier(),
-					AuthID:    authID,
-					AuthLabel: authLabel,
-					AuthType:  authType,
-					AuthValue: authValue,
-				})
-				retryResp, retryErr := doCodexRequestWithHeaderTimeout(httpClient, retryReq, codexHeaderTimeout(e.cfg))
-				if retryErr != nil {
-					helps.RecordAPIResponseError(ctx, e.cfg, retryErr)
-					err = retryErr
-					return resp, err
-				}
-				defer func(rb io.Closer) {
-					if errClose := rb.Close(); errClose != nil {
-						log.Errorf("codex executor: close retry response body error: %v", errClose)
-					}
-				}(retryResp.Body)
-				helps.RecordAPIResponseMetadata(ctx, e.cfg, retryResp.StatusCode, retryResp.Header.Clone())
-				if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
-					b, _ = io.ReadAll(retryResp.Body)
-					b = applyCodexIdentityConfuseResponsePayload(b, retryIdentityState)
-					helps.AppendAPIResponseChunk(ctx, e.cfg, b)
-					helps.LogWithRequestID(ctx).Debugf("request retry error, error status: %d, error message: %s", retryResp.StatusCode, helps.SummarizeErrorBody(retryResp.Header.Get("Content-Type"), b))
-					err = newCodexStatusErr(retryResp.StatusCode, b)
-					return resp, err
-				}
-				body = strippedBody
-				identityState = retryIdentityState
-				httpResp = retryResp
-			} else {
-				err = newCodexStatusErr(httpResp.StatusCode, b)
-				return resp, err
-			}
-		} else {
-			err = newCodexStatusErr(httpResp.StatusCode, b)
-			return resp, err
-		}
+		err = newCodexStatusErrWithCooling(httpResp.StatusCode, b, e.modelLevelCooling())
+		return resp, err
 	}
 	data, errRead := io.ReadAll(httpResp.Body)
-	upstreamData := applyCodexIdentityConfuseResponsePayload(data, identityState)
-	helps.AppendAPIResponseChunk(ctx, e.cfg, upstreamData)
+	helps.AppendAPIResponseChunk(ctx, e.cfg, data)
 
-	lines := bytes.Split(upstreamData, []byte("\n"))
+	lines := bytes.Split(data, []byte("\n"))
 	outputItemsByIndex := make(map[int64][]byte)
 	var outputItemsFallback [][]byte
+	sawOutputDelta := false
 	for _, line := range lines {
 		if !bytes.HasPrefix(line, dataTag) {
 			continue
@@ -188,9 +148,14 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 
 		eventData := bytes.TrimSpace(line[5:])
 		eventData = helps.RestoreCodexMultiAgentV2Response(eventData, optimizeMultiAgentV2)
+		reporter.ObserveResponseModel(eventData)
 		eventType := gjson.GetBytes(eventData, "type").String()
 
-		if streamErr, terminalBody, ok := codexTerminalFailureErr(eventData); ok {
+		if helps.HasMeaningfulCodexOutputDelta(eventData) {
+			sawOutputDelta = true
+		}
+
+		if streamErr, terminalBody, ok := codexTerminalFailureErrWithCooling(eventData, e.modelLevelCooling()); ok {
 			if errClearReplay := clearCodexReasoningReplayOnInvalidSignature(ctx, replayScope, streamErr.StatusCode(), terminalBody); errClearReplay != nil {
 				return resp, errClearReplay
 			}
@@ -216,10 +181,10 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 			continue
 		}
 
-		if detail, ok := helps.ParseCodexUsage(eventData); ok {
-			reporter.Publish(ctx, detail)
+		if helps.IsCodexTerminalEmptyIncomplete(eventData, len(outputItemsByIndex)+len(outputItemsFallback), sawOutputDelta) {
+			err = newCodexEmptyIncompleteStreamError()
+			return resp, err
 		}
-		publishCodexImageToolUsage(ctx, reporter, body, eventData)
 
 		completedData := patchCodexCompletedOutput(eventData, outputItemsByIndex, outputItemsFallback)
 		if eventType == "response.completed" {
@@ -227,8 +192,17 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		}
 
 		var param any
-		clientCompletedData := applyCodexIdentityExposeResponsePayload(completedData, identityState)
-		out := sdktranslator.TranslateNonStream(ctx, to, responseFormat, req.Model, originalPayload, body, clientCompletedData, &param)
+		out := sdktranslator.TranslateNonStream(ctx, to, responseFormat, req.Model, originalPayload, body, completedData, &param)
+		if helps.ApplyPatchTranslationError(param) != nil || len(out) == 0 {
+			return cliproxyexecutor.Response{}, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}
+		}
+		if detail, ok := helps.ParseCodexUsage(eventData); ok {
+			reporter.Publish(ctx, detail)
+		}
+		publishCodexImageToolUsage(ctx, reporter, body, eventData)
+		if responseFormat == sdktranslator.FormatOpenAIResponse {
+			out = helps.EnsureResponsesUsageDetails(out)
+		}
 		resp = cliproxyexecutor.Response{Payload: out, Headers: httpResp.Header.Clone()}
 		return resp, nil
 	}
@@ -248,6 +222,9 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
 
 	apiKey, baseURL := codexCreds(auth)
+	if errSIWC := ensureCodexSIWCCredentials(auth, apiKey); errSIWC != nil {
+		return resp, errSIWC
+	}
 	if baseURL == "" {
 		baseURL = "https://chatgpt.com/backend-api/codex"
 	}
@@ -263,33 +240,40 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := originalPayloadSource
-	originalTranslated, body := translateCodexRequestPair(from, to, baseModel, originalPayload, req.Payload, false, helps.APIKeyModelIsCompat(req))
-
-	body, err = helps.ApplyRequestThinking(body, req, opts, from.String(), to.String(), e.Identifier())
+	isCompat := e.resolveCodexModelIsCompat(auth, req, baseModel)
+	originalTranslated, body, updatesChanged, err := translateCodexRequestPairWithUpdateIntent(from, to, baseModel, originalPayload, req.Payload, false, isCompat)
 	if err != nil {
 		return resp, err
 	}
 
-	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
-	requestPath := helps.PayloadRequestPath(opts)
-	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
+	body, err = helps.ApplyRequestThinking(body, req, opts, from.String(), to.String(), e.Identifier(), updatesChanged)
+	if err != nil {
+		return resp, err
+	}
+
+	ctx = helps.WithPayloadFinalizer(ctx, helps.NewPayloadFinalizer(e.cfg, e.Identifier(), baseModel, to.String(), "", originalTranslated, req, opts))
 	body = helps.SetStringIfDifferent(body, "model", baseModel)
 	body, _ = sjson.DeleteBytes(body, "stream")
-	body = normalizeCodexInstructions(body)
-	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex executor", body)
+	if !codexUseSIWC(auth) {
+		body = normalizeCodexInstructions(body, helps.IsNativeCodexRequest(req.Payload, opts))
+	} else {
+		hasExplicitInstructions := gjson.GetBytes(req.Payload, "instructions").Exists() && strings.TrimSpace(gjson.GetBytes(req.Payload, "instructions").String()) != ""
+		body = applyCodexSIWCCompactBodyRules(body, hasExplicitInstructions)
+	}
+	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, isCompat)
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
-	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
-	reporter.SetTranslatedReasoningEffort(body, to.String())
+	body = helps.NormalizeCodexToolSchemas(body)
+	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, isCompat)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses/compact"
-	var identityState codexIdentityConfuseState
-	httpReq, upstreamBody, identityState, err := e.cacheHelper(ctx, from, url, auth, req, originalPayloadSource, body, opts.Headers)
+	httpReq, upstreamBody, err := e.cacheHelper(ctx, from, url, req, body, opts.Headers)
 	if err != nil {
 		return resp, err
 	}
-	applyCodexHeaders(httpReq, auth, apiKey, false, e.cfg)
+	reporter.SetTranslatedReasoningEffort(upstreamBody, to.String())
+	applyCodexHeaders(httpReq, auth, apiKey, false, e.cfg, opts.Headers)
+	applyCodexRoutingHint(ctx, httpReq.Header, auth, baseModel, upstreamBody, opts.Headers)
 	applyModelHeaderOverrides(httpReq.Header, baseModel)
-	applyCodexIdentityConfuseHeaders(httpReq.Header, &identityState)
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
 		authID = auth.ID
@@ -307,9 +291,9 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		AuthType:  authType,
 		AuthValue: authValue,
 	})
-	httpClient := newCodexHTTPClient(ctx, e.cfg, auth)
+	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
 	httpClient = reporter.TrackHTTPClient(httpClient)
-	httpResp, err := doCodexRequestWithHeaderTimeout(httpClient, httpReq, codexHeaderTimeout(e.cfg))
+	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
 		return resp, err
@@ -322,76 +306,27 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	helps.RecordAPIResponseMetadata(ctx, e.cfg, httpResp.StatusCode, httpResp.Header.Clone())
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		b, _ := io.ReadAll(httpResp.Body)
-		b = applyCodexIdentityConfuseResponsePayload(b, identityState)
 		helps.AppendAPIResponseChunk(ctx, e.cfg, b)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
-		if shouldRetryResponsesWithoutEncryptedReasoning(httpResp.StatusCode, b) {
-			if strippedBody, changed := stripReasoningContextForRetry(body, b); changed {
-				helps.LogWithRequestID(ctx).Warn("codex compact executor: retrying once without encrypted reasoning context after upstream request error")
-				retryReq, retryUpstreamBody, retryIdentityState, retryBuildErr := e.cacheHelper(ctx, from, url, auth, req, originalPayloadSource, strippedBody, opts.Headers)
-				if retryBuildErr != nil {
-					err = retryBuildErr
-					return resp, err
-				}
-				applyCodexHeaders(retryReq, auth, apiKey, false, e.cfg)
-				applyModelHeaderOverrides(retryReq.Header, baseModel)
-				applyCodexIdentityConfuseHeaders(retryReq.Header, &retryIdentityState)
-				helps.RecordAPIRequest(ctx, e.cfg, helps.UpstreamRequestLog{
-					URL:       url,
-					Method:    http.MethodPost,
-					Headers:   retryReq.Header.Clone(),
-					Body:      retryUpstreamBody,
-					Provider:  e.Identifier(),
-					AuthID:    authID,
-					AuthLabel: authLabel,
-					AuthType:  authType,
-					AuthValue: authValue,
-				})
-				retryResp, retryErr := doCodexRequestWithHeaderTimeout(httpClient, retryReq, codexHeaderTimeout(e.cfg))
-				if retryErr != nil {
-					helps.RecordAPIResponseError(ctx, e.cfg, retryErr)
-					err = retryErr
-					return resp, err
-				}
-				defer func(rb io.Closer) {
-					if errClose := rb.Close(); errClose != nil {
-						log.Errorf("codex compact executor: close retry response body error: %v", errClose)
-					}
-				}(retryResp.Body)
-				helps.RecordAPIResponseMetadata(ctx, e.cfg, retryResp.StatusCode, retryResp.Header.Clone())
-				if retryResp.StatusCode < 200 || retryResp.StatusCode >= 300 {
-					b, _ = io.ReadAll(retryResp.Body)
-					b = applyCodexIdentityConfuseResponsePayload(b, retryIdentityState)
-					helps.AppendAPIResponseChunk(ctx, e.cfg, b)
-					helps.LogWithRequestID(ctx).Debugf("request retry error, error status: %d, error message: %s", retryResp.StatusCode, helps.SummarizeErrorBody(retryResp.Header.Get("Content-Type"), b))
-					err = newCodexStatusErr(retryResp.StatusCode, b)
-					return resp, err
-				}
-				body = strippedBody
-				identityState = retryIdentityState
-				httpResp = retryResp
-			} else {
-				err = newCodexStatusErr(httpResp.StatusCode, b)
-				return resp, err
-			}
-		} else {
-			err = newCodexStatusErr(httpResp.StatusCode, b)
-			return resp, err
-		}
+		err = newCodexStatusErrWithCooling(httpResp.StatusCode, b, e.modelLevelCooling())
+		return resp, err
 	}
 	data, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
 		return resp, err
 	}
-	upstreamData := applyCodexIdentityConfuseResponsePayload(data, identityState)
-	helps.AppendAPIResponseChunk(ctx, e.cfg, upstreamData)
-	upstreamData = helps.RestoreCodexMultiAgentV2Response(upstreamData, optimizeMultiAgentV2)
-	reporter.Publish(ctx, helps.ParseOpenAIUsage(upstreamData))
-	reporter.EnsurePublished(ctx)
+	helps.AppendAPIResponseChunk(ctx, e.cfg, data)
+	upstreamData := helps.RestoreCodexMultiAgentV2Response(data, optimizeMultiAgentV2)
 	var param any
-	clientData := applyCodexIdentityExposeResponsePayload(upstreamData, identityState)
-	out := sdktranslator.TranslateNonStream(ctx, to, responseFormat, req.Model, originalPayload, body, clientData, &param)
+	out := sdktranslator.TranslateNonStream(ctx, to, responseFormat, req.Model, originalPayload, body, upstreamData, &param)
+	if helps.ApplyPatchTranslationError(param) != nil || len(out) == 0 {
+		return cliproxyexecutor.Response{}, statusErr{code: http.StatusBadGateway, msg: helps.ApplyPatchUpstreamErrorMessage}
+	}
+	reporter.Publish(ctx, helps.ParseOpenAIUsage(upstreamData))
+	if responseFormat == sdktranslator.FormatOpenAIResponse {
+		out = helps.EnsureResponsesUsageDetails(out)
+	}
 	resp = cliproxyexecutor.Response{Payload: out, Headers: httpResp.Header.Clone()}
 	return resp, nil
 }

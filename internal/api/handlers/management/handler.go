@@ -14,13 +14,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/buildinfo"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/pluginhost"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/pluginstore"
-	apihandlers "github.com/router-for-me/CLIProxyAPI/v7/sdk/api/handlers"
-	sdkAuth "github.com/router-for-me/CLIProxyAPI/v7/sdk/auth"
-	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/buildinfo"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginhost"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginstore"
+	sdkAuth "github.com/router-for-me/CLIProxyAPI/v8/sdk/auth"
+	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -42,13 +41,13 @@ type Handler struct {
 	cfg                     *config.Config
 	configFilePath          string
 	mu                      sync.Mutex
+	authStatusMu            sync.Mutex
 	reloadMu                sync.Mutex
 	reloadGeneration        uint64
 	appliedReloadGeneration uint64
 	attemptsMu              sync.Mutex
 	failedAttempts          map[string]*attemptInfo // keyed by client IP
 	authManager             *coreauth.Manager
-	apiHandler              *apihandlers.BaseAPIHandler
 	tokenStore              coreauth.Store
 	localPassword           string
 	allowRemoteOverride     bool
@@ -60,8 +59,8 @@ type Handler struct {
 	configReloadHook        func(context.Context, *config.Config)
 	pluginStoreRegistryURL  string
 	pluginStoreHTTPClient   pluginstore.HTTPDoer
-	pluginReleaseCacheMu    sync.Mutex
-	pluginReleaseCache      map[string]pluginReleaseCacheEntry
+	pluginStoreRateLimiter  *pluginstore.GitHubRateLimiter
+	pluginReleases          pluginReleaseCache
 }
 
 type configReloadSnapshot struct {
@@ -74,17 +73,11 @@ func NewHandler(cfg *config.Config, configFilePath string, manager *coreauth.Man
 	envSecret, _ := os.LookupEnv("MANAGEMENT_PASSWORD")
 	envSecret = strings.TrimSpace(envSecret)
 
-	var apiHandler *apihandlers.BaseAPIHandler
-	if cfg != nil {
-		apiHandler = apihandlers.NewBaseAPIHandlers(&cfg.SDKConfig, manager)
-	}
-
 	h := &Handler{
 		cfg:                 cfg,
 		configFilePath:      configFilePath,
 		failedAttempts:      make(map[string]*attemptInfo),
 		authManager:         manager,
-		apiHandler:          apiHandler,
 		tokenStore:          sdkAuth.GetTokenStore(),
 		allowRemoteOverride: envSecret != "",
 		envSecret:           envSecret,
@@ -135,13 +128,6 @@ func (h *Handler) SetConfig(cfg *config.Config) {
 	}
 	h.mu.Lock()
 	h.cfg = cfg
-	if cfg != nil {
-		if h.apiHandler != nil {
-			h.apiHandler.UpdateClients(&cfg.SDKConfig)
-		} else {
-			h.apiHandler = apihandlers.NewBaseAPIHandlers(&cfg.SDKConfig, h.authManager)
-		}
-	}
 	h.mu.Unlock()
 }
 
@@ -152,9 +138,6 @@ func (h *Handler) SetAuthManager(manager *coreauth.Manager) {
 	}
 	h.mu.Lock()
 	h.authManager = manager
-	if h.cfg != nil {
-		h.apiHandler = apihandlers.NewBaseAPIHandlers(&h.cfg.SDKConfig, manager)
-	}
 	h.mu.Unlock()
 }
 
@@ -194,7 +177,7 @@ func (h *Handler) reloadSnapshotConfigLocked() configReloadSnapshot {
 // saveConfigAndSnapshotLocked saves h.cfg and returns a full runtime config snapshot.
 // Callers must hold h.mu.
 func (h *Handler) saveConfigAndSnapshotLocked(c *gin.Context) (configReloadSnapshot, bool) {
-	if errSave := config.SaveConfigPreserveComments(h.configFilePath, h.cfg); errSave != nil {
+	if errSave := config.SaveConfigPreserveComments(h.configFilePath, h.cfg, c.GetBool(ConfigV8ContextKey)); errSave != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", errSave)})
 		return configReloadSnapshot{}, false
 	}
@@ -425,7 +408,7 @@ func (h *Handler) persist(c *gin.Context) bool {
 // It expects the caller to hold h.mu.
 func (h *Handler) persistLocked(c *gin.Context) bool {
 	// Preserve comments when writing
-	if err := config.SaveConfigPreserveComments(h.configFilePath, h.cfg); err != nil {
+	if err := config.SaveConfigPreserveComments(h.configFilePath, h.cfg, c.GetBool(ConfigV8ContextKey)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", err)})
 		return false
 	}
