@@ -4,11 +4,16 @@
 
 ## 当前基线
 
-上游基线：`v7.2.122`
+上游基线：`v8.0.27`
 
-自用版本：`v7.2.122-selfuse.20260807.1`
+自用版本：`v8.0.27-selfuse.20261013.1`
 
 ## 改动概要
+### 上游 v7.2.123 ~ v8.0.27
+
+- 上游跨 v7.2.123 到 v8.0.27 大跨度合并。包 namespace 从 `CLIProxyAPI/v7` 迁移到 `CLIProxyAPI/v8`。
+- v8 已重新实现并覆盖这些 self-use 补丁：加密 reasoning 降级重试、pre-first-token keep-alive 流、XAI 工具调用命名折叠、凭据冷却与失败分类。因此删除 v7 依赖 self-use 文件：`codex_executor_selfuse.go`、`codex_executor_stream_retry.go`、`auth_files_test_call.go`。
+- 保留仍-valid self-use 文件：`management_panel_inject.go`、`responses_encrypted_retry.go`、`json_repair.go`、`response_header_timeout.go`。
 
 ### Codex 上下文过长处理
 
