@@ -18,6 +18,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginhost"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginstore"
+	apihandlers "github.com/router-for-me/CLIProxyAPI/v8/sdk/api/handlers"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v8/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
@@ -48,6 +49,7 @@ type Handler struct {
 	attemptsMu              sync.Mutex
 	failedAttempts          map[string]*attemptInfo // keyed by client IP
 	authManager             *coreauth.Manager
+	apiHandler              *apihandlers.BaseAPIHandler
 	tokenStore              coreauth.Store
 	localPassword           string
 	allowRemoteOverride     bool
@@ -73,11 +75,17 @@ func NewHandler(cfg *config.Config, configFilePath string, manager *coreauth.Man
 	envSecret, _ := os.LookupEnv("MANAGEMENT_PASSWORD")
 	envSecret = strings.TrimSpace(envSecret)
 
+	var apiHandler *apihandlers.BaseAPIHandler
+	if cfg != nil {
+		apiHandler = apihandlers.NewBaseAPIHandlers(&cfg.SDKConfig, manager)
+	}
+
 	h := &Handler{
 		cfg:                 cfg,
 		configFilePath:      configFilePath,
 		failedAttempts:      make(map[string]*attemptInfo),
 		authManager:         manager,
+		apiHandler:          apiHandler,
 		tokenStore:          sdkAuth.GetTokenStore(),
 		allowRemoteOverride: envSecret != "",
 		envSecret:           envSecret,
@@ -128,6 +136,23 @@ func (h *Handler) SetConfig(cfg *config.Config) {
 	}
 	h.mu.Lock()
 	h.cfg = cfg
+	if cfg != nil {
+		if h.apiHandler != nil {
+			h.apiHandler.UpdateClients(&cfg.SDKConfig)
+		} else {
+			h.apiHandler = apihandlers.NewBaseAPIHandlers(&cfg.SDKConfig, h.authManager)
+		}
+	}
+	h.mu.Unlock()
+}
+
+// SetAPIHandler shares the server's API handler instance with management endpoints.
+func (h *Handler) SetAPIHandler(apiHandler *apihandlers.BaseAPIHandler) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.apiHandler = apiHandler
 	h.mu.Unlock()
 }
 
@@ -138,6 +163,11 @@ func (h *Handler) SetAuthManager(manager *coreauth.Manager) {
 	}
 	h.mu.Lock()
 	h.authManager = manager
+	if h.apiHandler != nil {
+		h.apiHandler.AuthManager = manager
+	} else if h.cfg != nil {
+		h.apiHandler = apihandlers.NewBaseAPIHandlers(&h.cfg.SDKConfig, manager)
+	}
 	h.mu.Unlock()
 }
 
