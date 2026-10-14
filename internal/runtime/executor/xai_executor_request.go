@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -142,6 +143,7 @@ func (e *XAIExecutor) prepareResponsesRequestTo(ctx context.Context, req cliprox
 	if webSearchAlias != "" {
 		body = aliasXAIClientWebSearchInput(body, webSearchAlias, namespaceTools)
 	}
+	body = normalizeXAIToolSearchHistory(body)
 	body = normalizeXAIInputReasoningItems(body)
 	body = sanitizeXAIInputEncryptedContent(body)
 	body = normalizeCodexInstructions(body)
@@ -1818,4 +1820,67 @@ func xaiCustomToolCallOutput(output gjson.Result) string {
 		return output.String()
 	}
 	return output.Raw
+}
+
+func xaiInputShapeSummary(body []byte) string {
+	input := gjson.GetBytes(body, "input")
+	if !input.Exists() {
+		return "input=missing"
+	}
+	if !input.IsArray() {
+		return "input=" + input.Type.String()
+	}
+
+	items := input.Array()
+	parts := make([]string, 0, len(items))
+	for i, item := range items {
+		fields := make([]string, 0, len(item.Map()))
+		for key := range item.Map() {
+			fields = append(fields, key)
+		}
+		sort.Strings(fields)
+
+		part := fmt.Sprintf("%d:type=%s", i, item.Get("type").String())
+		if role := item.Get("role").String(); role != "" {
+			part += ",role=" + role
+		}
+		part += ",keys=" + strings.Join(fields, "|")
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, ";")
+}
+
+// normalizeXAIToolSearchHistory drops client-side tool_search history. xAI's
+// Responses API rejects these item variants as ModelInput, while the current
+// request still carries the actual callable tools needed for the next turn.
+func normalizeXAIToolSearchHistory(body []byte) []byte {
+	input := gjson.GetBytes(body, "input")
+	if !input.Exists() || !input.IsArray() {
+		return body
+	}
+
+	inputArray := input.Array()
+	items := make([]json.RawMessage, 0, len(inputArray))
+	changed := false
+	for _, item := range inputArray {
+		switch item.Get("type").String() {
+		case "tool_search_call", "tool_search_output":
+			changed = true
+		default:
+			items = append(items, json.RawMessage(item.Raw))
+		}
+	}
+	if !changed {
+		return body
+	}
+
+	rawInput, errMarshal := json.Marshal(items)
+	if errMarshal != nil {
+		return body
+	}
+	updated, errSet := sjson.SetRawBytes(body, "input", rawInput)
+	if errSet != nil {
+		return body
+	}
+	return updated
 }
